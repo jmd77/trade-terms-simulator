@@ -63,6 +63,12 @@
  *                                  data-action="signIn" data-key="signin-enter", focused; .si-note) and changes nothing in the state.
  *                                  signIn goes to #priorities/<ui.scope if still valid, else the first customer>. TTS.route() still
  *                                  returns the priorities fallback for an empty hash; nothing in the app links to an empty hash.
+ *   TTS.noteEdit                   SPEC12: '<customerId>:<lineId>' of the contract point whose note input is open under its row in
+ *                                  Contract analysis, or null (view state, one at a time, never saved; cleared when the hash
+ *                                  changes, kept against TTS.noteEditHash). Action "noteEdit" (data-cust, data-line) opens it and
+ *                                  focuses input.ca-notein with the caret at the end. Enter saves through the "line" change handler
+ *                                  (which clears noteEdit) or just closes when unchanged, then focuses the row's Note control; Escape
+ *                                  closes without saving; leaving the input unchanged closes it (document focusout).
  *   TTS.importCheckFresh           SPEC11 2.2: set true before a render to replay the Import check once (the next render reads and
  *                                  clears it; the panel gets .fresh for that render). Set by "Load example data" and a good import.
  *   TTS.screens[name]              { head(scope, customer, route) -> {title, subtitle, actions},
@@ -314,6 +320,13 @@
  *   · the action cell holds span.ca-becomes.is-c|.is-p|.is-u (arrow + the proposed class) when the classification changes and the
  *   proposed amount is above 0 · band: the last two tiles are "Counterparts pass the SMART check" and .stat.ca-same "Improved at the
  *   same money" with .ca-l3 (the third line; title = the names)
+ *   SPEC12, the KAM's note on the table (the same field line.kamNote as "What the KAM will do" in Details): the last cell of a row
+ *   holds div.ca-actbtns > the Details button + button.detbtn.ca-notebtn (pencil icon + "Note", data-action="noteEdit", data-key
+ *   line:<c>:<lineId>:notebtn, title / aria-label "What the KAM will do: add a note" | "…: edit the note"). Under a row with a
+ *   note, or whose note is being edited, comes tr.ca-noterow[data-line][.flag][.editing] > td[colspan=10] holding either
+ *   button.ca-noteline (pencil + the note, data-action="noteEdit", data-key …:noteline) or div.ca-notewrap > pencil +
+ *   input.cell.ca-notein (data-change="line" data-field="kamNote", data-key line:<c>:<lineId>:note); that row then has .has-note
+ *   (no bottom rule). A row without a note that is not being edited has no note row. Icon set: icon('pencil').
  *   Import (prefix imp-, SPEC11 2): div.imp-check[.fresh] > .label + three div.imp-ck (style --i: 0..2) > span.imp-tick +
  *   .imp-tx > .imp-main + .imp-det (line 3: + .imp-det2)
  *   Agreement today (prefix wf-): .stats.bkband.wf-band[.prop] (three stats, .wf-l2 / .wf-today extra label lines, then
@@ -1345,7 +1358,8 @@ var TTS = (function (global) {
     calendar: '<rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18"/><path d="M8 3v4"/><path d="M16 3v4"/>',
     alert: '<path d="M12 3 2 20h20L12 3z"/><path d="M12 10v4"/><path d="M12 17h.01"/>',
     file: '<path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5"/>',
-    cross: '<path d="M7 7l10 10"/><path d="M17 7 7 17"/>'
+    cross: '<path d="M7 7l10 10"/><path d="M17 7 7 17"/>',
+    pencil: '<path d="M4 20h4L19 9a2.8 2.8 0 0 0-4-4L4 16v4z"/><path d="m13.5 6.5 4 4"/>'
   };
   function icon(name, size) {
     var s = size || 18;
@@ -1967,6 +1981,7 @@ var TTS = (function (global) {
       if (en) en.focus({ preventScroll: true });
       return;
     }
+    if (TTS.noteEdit && TTS.noteEditHash !== location.hash) TTS.noteEdit = null;   // SPEC12: a route change ends the note editing
     importFreshNow = !!TTS.importCheckFresh;
     TTS.importCheckFresh = false;
     var r = TTS.route();
@@ -2153,6 +2168,7 @@ var TTS = (function (global) {
     if ((f === (kpiId ? 'name' : 'counterpart') || f === 'target' || f === 'unit') && obj[f] !== v) obj.kpiFull = '';
     obj[f] = v;
     if (replan) obj.plan = E.defaultPlan(obj);
+    if (el.classList && el.classList.contains('ca-notein')) TTS.noteEdit = null;   // SPEC12: saving the note under the row ends its editing
     TTS.commit();
   };
   // one customer figure: data-change="customer" data-cust data-field="listSales" | "promoSpend" | "revenueLY" | "investmentLY".
@@ -2596,9 +2612,42 @@ var TTS = (function (global) {
   function detKey(c, line) { return c.id + ':' + line.id; }
   function detailsCell(c, line) {
     var open = !!TTS.details[detKey(c, line)];
-    return '<td class="act"><button type="button" class="detbtn' + (open ? ' open' : '') + '" data-action="toggleDetails" data-cust="' + esc(c.id) +
+    // SPEC12: under Details, the "Note" control (the KAM's note, line.kamNote, edited in a row under the contract point)
+    var nt = 'What the KAM will do: ' + (blank(line.kamNote) ? 'add a note' : 'edit the note');
+    return '<td class="act"><div class="ca-actbtns"><button type="button" class="detbtn' + (open ? ' open' : '') + '" data-action="toggleDetails" data-cust="' + esc(c.id) +
       '" data-line="' + esc(line.id) + '" data-key="line:' + esc(c.id) + ':' + esc(line.id) + ':details" aria-expanded="' + open + '">Details' +
-      icon('caret-down', 14) + '</button></td>';
+      icon('caret-down', 14) + '</button>' +
+      '<button type="button" class="detbtn ca-notebtn" data-action="noteEdit" data-cust="' + esc(c.id) + '" data-line="' + esc(line.id) +
+      '" data-key="line:' + esc(c.id) + ':' + esc(line.id) + ':notebtn" title="' + esc(nt) + '" aria-label="' + esc(nt) + '">' + icon('pencil', 14) + 'Note</button></div></td>';
+  }
+  // SPEC12: the note row under a contract point: (a) the note as one quiet line (a click edits it) or (b) the input while it is
+  // being edited (TTS.noteEdit = '<c>:<lineId>'); no row at all for a line without a note that is not being edited
+  TTS.noteEdit = null;
+  function noteRow(c, line) {
+    var editing = TTS.noteEdit === detKey(c, line), has = !blank(line.kamNote);
+    if (!editing && !has) return '';
+    var flag = E.classOf(line, 'today') === 'partial';
+    var ids = ' data-cust="' + esc(c.id) + '" data-line="' + esc(line.id) + '"';
+    var inner = editing
+      ? '<div class="ca-notewrap">' + icon('pencil', 14) + '<input type="text" class="cell ca-notein" data-change="line"' + ids + ' data-field="kamNote" data-key="line:' +
+        esc(c.id) + ':' + esc(line.id) + ':note" value="' + esc(line.kamNote) + '" placeholder="What the KAM will do" aria-label="What the KAM will do"></div>'
+      : '<button type="button" class="ca-noteline" data-action="noteEdit"' + ids + ' data-key="line:' + esc(c.id) + ':' + esc(line.id) +
+        ':noteline" title="What the KAM will do. Click to edit.">' + icon('pencil', 14) + '<span>' + esc(line.kamNote) + '</span></button>';
+    return '<tr class="ca-noterow' + (editing ? ' editing' : '') + (flag ? ' flag' : '') + '" data-line="' + esc(line.id) + '"><td colspan="10">' + inner + '</td></tr>';
+  }
+  TTS.actions.noteEdit = function (el) {
+    var cid = el.getAttribute('data-cust'), lid = el.getAttribute('data-line');
+    TTS.noteEdit = cid + ':' + lid;
+    TTS.noteEditHash = location.hash;
+    TTS.focusKey = 'line:' + cid + ':' + lid + ':note';
+    render();
+    var inp = document.querySelector('input.ca-notein');
+    if (inp) { var n = inp.value.length; try { inp.setSelectionRange(n, n); } catch (e) { /* not a text input */ } }
+  };
+  function closeNote(focusKey) {
+    TTS.noteEdit = null;
+    if (focusKey) TTS.focusKey = focusKey;
+    render();
   }
   var ORD = ['second', 'third', 'fourth', 'fifth', 'sixth'];
   function ordLabel(i) { var w = ORD[i] || 'extra'; return w.charAt(0).toUpperCase() + w.slice(1) + ' KPI'; }
@@ -2676,7 +2725,8 @@ var TTS = (function (global) {
   }
   function caRow(c, line, row) {
     var flag = E.classOf(line, 'today') === 'partial';
-    return '<tr class="ca-row ca-' + row.block + (flag ? ' flag' : '') + '" data-line="' + esc(line.id) + '">' +
+    var noted = !blank(line.kamNote) || TTS.noteEdit === detKey(c, line);   // a note row follows (SPEC12)
+    return '<tr class="ca-row ca-' + row.block + (flag ? ' flag' : '') + (noted ? ' has-note' : '') + '" data-line="' + esc(line.id) + '">' +
       '<td class="edit ca-ptcell"><div class="ca-pt">' + wrapEdit(c, line, null, 'name', line.name, 'Name of the contract point', 'strong', 'Contract point') +
       '<div class="ca-sum">' + cpSummary(line) + '</div></div></td>' +
       caBasisCell(c, line) + caAmountCell(c, line, row) +
@@ -2840,7 +2890,7 @@ var TTS = (function (global) {
     var body = E.waterfall(c, 'today').map(function (row) {
       if (row.kind !== 'line') return caAnchorRow(c, row, prop);
       var l = findLine(c, row.lineId);
-      return caRow(c, l, row) + caDetails(c, l);
+      return caRow(c, l, row) + noteRow(c, l) + caDetails(c, l);
     }).join('');
     var table = '<table class="grid agreement ca">' + colg + thead + '<tbody>' + body + '</tbody></table>';
     return caBand(c) + '<div class="table-gap ca-tbl">' + table + '</div>' +
@@ -3103,6 +3153,16 @@ var TTS = (function (global) {
     document.addEventListener('keydown', function (e) {
       if (e.key === 'Escape' && TTS.pop) { e.preventDefault(); closePop(true); return; }
       if (e.key === 'Enter' && TTS.pop && e.target.closest && e.target.closest('#tts-pop input')) { e.preventDefault(); closePop(true); return; }
+      // SPEC12: the note input under a row: Enter saves (or just closes when unchanged), Escape closes without saving
+      if ((e.key === 'Enter' || e.key === 'Escape') && !e.isComposing && e.target.classList && e.target.classList.contains('ca-notein')) {
+        e.preventDefault();
+        var nk = e.target.getAttribute('data-key') + 'btn';   // back to the row's "Note" control
+        if (e.key === 'Escape') { e.target.value = e.target.defaultValue; closeNote(nk); return; }
+        TTS.noteEdit = null;
+        TTS.focusKey = nk;
+        if (e.target.value !== e.target.defaultValue) e.target.dispatchEvent(new Event('change', { bubbles: true })); else render();
+        return;
+      }
       // wrapping editors: Enter commits (focus is kept by the render) instead of adding a line break
       if (e.key === 'Enter' && !e.isComposing && e.target.classList && e.target.classList.contains('wrapedit')) {
         e.preventDefault();
@@ -3112,6 +3172,17 @@ var TTS = (function (global) {
       if (e.key === 'Enter' && e.target.closest && e.target.closest('tr.click') && e.target.tagName === 'TR') {
         var fn = TTS.actions.go; fn(e.target, e);
       }
+    });
+    // SPEC12: leaving the note input unchanged closes it (a changed value is saved by its change event, which closes it too);
+    // when focus moves to a control with an action, that control's click renders
+    document.addEventListener('focusout', function (e) {
+      var t = e.target;
+      if (!TTS.noteEdit || !t.classList || !t.classList.contains('ca-notein') || t.value !== t.defaultValue) return;
+      TTS.noteEdit = null;
+      var rt = e.relatedTarget;
+      if (rt && rt.closest && rt.closest('[data-action]')) return;
+      if (rt && rt.getAttribute && rt.getAttribute('data-key')) TTS.focusKey = rt.getAttribute('data-key');
+      render();
     });
     window.addEventListener('hashchange', function () { if (TTS.pop) TTS.pop = null; render(); });
     window.addEventListener('resize', function () { if (TTS.pop) renderPop(); });

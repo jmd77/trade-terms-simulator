@@ -666,6 +666,30 @@ dialog.dlg p { margin-top: 10px; font-size: 15px; color: var(--muted); }
 .ca-becomes.is-c { color: var(--green); }
 .ca-becomes.is-p { color: var(--yellow-text); }
 .ca-becomes.is-u { color: var(--muted); }
+/* SPEC12: the last cell holds Details and, under it, the "Note" control (same text style, left-aligned) */
+.ca-actbtns { display: flex; flex-direction: column; align-items: flex-start; }
+.ca-actbtns .detbtn { height: 26px; }
+.detbtn.ca-notebtn { gap: 5px; }
+/* SPEC12: the note row belongs to the row above it (no rule between them, same background, the yellow bar of a flagged row) */
+.grid.ca tr.ca-row.has-note > td { border-bottom: 0; }
+.grid.ca tr.ca-noterow > td { height: auto; padding: 2px 10px 10px 7px; white-space: normal; overflow: visible; }
+.grid.ca tr.ca-noterow.editing > td { padding-top: 4px; }
+.grid tbody tr.ca-noterow:hover > td { background: transparent; }
+.grid tbody tr.ca-noterow.flag:hover > td { background: var(--yellow-bg); }
+.ca-noteline {
+  display: inline-flex; align-items: flex-start; gap: 6px; max-width: 100%; padding: 0; margin: 0; border: 0; background: none;
+  font-size: 13px; font-weight: 500; line-height: 18px; color: var(--muted); text-align: left; white-space: normal; cursor: pointer;
+}
+.ca-noteline .ic { margin-top: 2px; color: var(--muted); }
+.ca-noteline span { min-width: 0; overflow-wrap: anywhere; }
+.ca-noteline:hover, .ca-noteline:focus-visible { color: var(--navy); }
+.ca-noteline:focus-visible { box-shadow: none; text-decoration: underline; text-underline-offset: 3px; }
+.ca-notewrap { position: relative; }
+.ca-notewrap > .ic { position: absolute; left: 10px; top: 11px; color: var(--muted); pointer-events: none; }
+.grid.ca .cell.ca-notein { height: 36px; padding-left: 32px; background: var(--white); border-color: var(--grey-light); }
+.grid.ca .cell.ca-notein:hover { border-color: var(--grey); }
+.grid.ca .cell.ca-notein:focus { border-color: var(--green); }
+
 /* SPEC11 3.3: the band's last tile has a third line; it hangs under the shared label baseline (the band grows to hold it) */
 .stats.ca-band { padding-bottom: 33px; }
 .stat.ca-same { margin-bottom: -18px; }
@@ -1314,4 +1338,8 @@ button.tt-mc:focus-visible { box-shadow: var(--ring); }
   .ca-kpig .ca-ko, .ca-kpig .ca-ks { grid-column: 1 / -1; }
   /* Details: the panel row under its contract point takes the full width */
   .grid.ca tr.ca-detrow { display: block; background: var(--panel); }
+  /* SPEC12: the note row runs under its contract point, the row's rule moves under it */
+  .grid.ca tr.ca-row.has-note { border-bottom: 0; padding-bottom: 2px; }
+  .grid.ca tr.ca-noterow { display: block; }
+  .grid.ca tr.ca-noterow > td { display: block; }
 }
