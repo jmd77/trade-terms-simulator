@@ -3,8 +3,8 @@
  *
  * LAYOUT OF THIS FILE
  *   1. Core IIFE: example data (+ the monthly-row helpers), fmt, engine, state, ui helpers, Excel, routing + render, popover,
- *      then screen 1 Priorities, screen 2 Import, screen 3 Agreement (Contract analysis, Agreement today = the price waterfall
- *      and its optional By pack table, All customers = one chart), and TTS.start().
+ *      then screen 1 Priorities, screen 2 Import, screen 3 Agreement (two tabs: Contract analysis, with the price waterfall and
+ *      its optional By pack table behind a link, and Today and proposed; All customers = one chart), and TTS.start().
  *   2. Screen 4 Track & trace (own IIFE, registers TTS.screens.track; CSS classes prefixed tt-). Ninth pass (SPEC9): a calendar.
  *      Rows are read-only, no input in a row: KPI · calendar · Status · chevron, for one customer and for All customers alike.
  *      KPI cell (td.tt-kpi): .tt-l1.tt-name = k.text (the KPI in words) + .tt-l2 (13 px muted, flex): the contract point (All
@@ -43,21 +43,30 @@
  *          track:<c>:<kpiId>:paid) + "of 2.5 (SEK m)"; then .tt-sws > four button.tt-switch[role=switch][aria-checked]
  *          (data-action="trackSwitch", data-field tracked | checked | due | paidFull, data-key track:<c>:<kpiId>:<field>).
  *      Laptops (< 1500 px): What was agreed then Month by month in the left column, Proof and payment in the right one.
- *      Cards take their content height (no inner scroll); below 1400 px the script card takes its own row;
- *      the opportunity total (.pl-oppsum) shows only when card 2 stays no taller than the cards beside it (fitOppSum);
- *      All customers: one .pl-headband headline above the cards.
- *      Fifth pass (SPEC5 8): the key figures come first, from E.keyFigures: nav.pl-kfband with five a.pl-kf groups (.pl-kf-terms
- *      -> #agreement/<c>/waterfall, -cls and -cps -> #agreement/<c>, -kpis and -ahead -> #track/<c>; All customers: #agreement/all
- *      and #track/all; data-key plan-kf:<group>): Trade terms (SEK, % of gross revenue, third net), Classification (.pl-kfbar
- *      + .pl-kfcls legend), Counterparts, KPIs (.pl-kfchips), Paid ahead of delivery (.pl-kfahead / .pl-kfnone). Five in a row
- *      from 1500 px, three then two below. All customers: the headline, then the same band for the total. Print: the band is
- *      hidden and .pl-kfprint (the same figures as one line under the print title) is shown.
- *      Script edits are kept per customer in customer.scriptEdits[key], keys: opening, propose, ask, give,
- *      obj1q, obj1a … obj4q, obj4a ("ask" and "give" are the two columns of "What we ask and what we give").
+ *   3. Screen 5 Negotiation plan (own IIFE, registers TTS.screens.plan; SPEC13 3: a decision tree per opportunity).
+ *      Routes: #plan/<c> and #plan/<c>/<opportunity key> (E.oppKey; TTS.route drops a key that is not one of that customer's
+ *      opportunities, e.g. the old #plan/<c>/objections, and any option of #plan/all). One customer, top to bottom:
+ *      the key figures (SPEC5 8, from E.keyFigures: nav.pl-kfband with five a.pl-kf groups, .pl-kf-terms -> #agreement/<c>/waterfall,
+ *      -cls -> #agreement/<c>/proposal, -cps -> #agreement/<c>, -kpis and -ahead -> #track/<c>; All customers: #agreement/all and
+ *      #track/all; data-key plan-kf:<group>; five in a row from 1500 px, three then two below); div.tr-open "To open the meeting"
+ *      (textarea.wrapedit.tr-opening, data-change="planOpening", data-key plan:<c>:opening: scriptEdits.opening when it differs
+ *      from the generated sentence); the label "Top opportunities, ranked by the tool" + nav.tr-pills > a.tr-pill[.on] (href
+ *      #plan/<c>/<key>, data-key pill:<c>:<key>; > .tr-rank, .tr-pn name, .tr-pa amount); div.tr-tree of the selected one:
+ *      .tr-box.tr-prop "We propose" > .tr-bh (.tr-bl label) + textarea.wrapedit.tr-ed (data-change="tree" data-cust data-opp
+ *      data-field="propose", data-key tree:<c>:<key>:propose) · i.tr-v connector · .tr-q "Expect an objection. Which one?" ·
+ *      .tr-cols (style --n = number of objections; ::before the horizontal connector, ::after the stem) > .tr-col per objection
+ *      (.tr-oh "Objection n", shown below 1100 px where the columns stack): .tr-box.tr-say (amber; button.iconbtn.tr-rm
+ *      data-action="treeRemove", with a confirm, not on the last one) → .tr-box.tr-ans (green) → .tr-chips (Yes: agreed /
+ *      Still no) → i.tr-v.tr-vr → .tr-box.tr-fb (white) → .tr-end (Still no: Sales leadership); editors data-obj="<i>"
+ *      data-field say | answer | fallback, data-key tree:<c>:<key>:<i>:<field>; .tr-addrow > button.tr-add data-action="treeAdd"
+ *      (hidden at three). The first edit of any box stores the whole tree in customer.trees[key]; until then the tree is
+ *      generated (TTS.plan.generated, fixed text blocks, no AI). Print: .pl-printhead, .pl-kfprint and div.tr-print (the opening
+ *      sentence and the outline of every opportunity) only. All customers: the band for the total, then section.tr-cust per
+ *      customer (h2.tr-cname link + its pills, each a link to that customer's plan with that opportunity).
  *   Screens 4 and 5 only use the core through TTS.* (no shared private variables).
  *
  * PUBLIC API (everything lives on window.TTS)
- *   TTS.state                      the live state (SPEC section 3 + SPEC5 1 + SPEC5b A + SPEC11: version 6, see DATA MODEL below)
+ *   TTS.state                      the live state (SPEC section 3 + SPEC5 1 + SPEC5b A + SPEC11 + SPEC13: version 7, see DATA MODEL below)
  *   TTS.isSignIn()                 SPEC11 1: true when the raw hash is empty ('', '#', '#/'). render() then draws only the sign-in
  *                                  screen (main.si-page > .si-card: .si-brand, .si-sub, hr.si-rule, .si-as, .si-who, button.si-enter
  *                                  data-action="signIn" data-key="signin-enter", focused; .si-note) and changes nothing in the state.
@@ -79,13 +88,13 @@
  *   TTS.render()                   rebuild the page from state (keeps focus by data-key, keeps scroll)
  *   TTS.go(screen, scope, option)  navigate (hash routing #screen/scope[/option], option may hold a "/", e.g. "waterfall/proposed")
  *   TTS.route()                    current route { screen, scope, option, sub, view, packs, fixed }: #screen/scope/option/sub;
- *                                  view = 'analysis' | 'waterfall' on step 3 of one customer, '' elsewhere; packs = true on
+ *                                  view = 'analysis' | 'waterfall' | 'proposal' on step 3 of one customer, '' elsewhere; packs = true on
  *                                  #agreement/<c>/waterfall/today|proposed/packs (then sub is '' or 'proposed')
  *   TTS.customer(id), TTS.scopeLines(scope), TTS.uid(prefix)
  *   TTS.hashFor(screen, scope, option) -> "#screen/scope[/option]" · TTS.listJoin(["a","b","c"]) -> "a, b and c"
  *   TTS.dayNum("2027-06-15") -> whole days since 1970-01-01 (UTC), for day-of-year arithmetic
- *   TTS.load(), TTS.save(), TTS.resetToExample(), TTS.exampleState()   (saved under localStorage "tts.state.v6", state.version 6;
- *                                  older keys are ignored, load removes "tts.state.v5" and "tts.state.v4"; load fills every missing field with
+ *   TTS.load(), TTS.save(), TTS.resetToExample(), TTS.exampleState()   (saved under localStorage "tts.state.v7", state.version 7;
+ *                                  older keys are ignored, load removes "tts.state.v6", "v5" and "v4"; load fills every missing field with
  *                                  its default)
  *   TTS.applyAction(line, action)  sets line.action and applies its effect once (SPEC5 3.2): Keep -> proposed amount, type and
  *                                  priority = today's · Make conditional, Strengthen the counterpart -> proposed type conditional ·
@@ -110,29 +119,33 @@
  *   TTS.details                    view state of step 3: { "<customerId>:<lineId>": true } for open Details rows (never saved)
  *   TTS.scrollTarget               a CSS selector a screen may set during render: that element is scrolled into view (block
  *                                  'nearest') once, after the render restored the scroll position (used by Track & trace)
- *   TTS.plan     generate(customer), texts(customer), plainText(customer)  (screen 5: script text)
+ *   TTS.plan     opening(c), openingGen(c), opportunities(c) -> [{ key, rank, name, money, o }], tree(c, op) -> { propose,
+ *                objections: [{ say, answer, fallback }] } (stored or generated), generated(c, opportunity), plainText(c) (the
+ *                Copy script outline), kfLine(c)   (screen 5; also used by the Excel export)
  *
- * ROUTES OF STEP 3 (SPEC5 4)
+ * ROUTES OF STEP 3 (SPEC5 4, SPEC13 1). One customer: two tabs, Contract analysis and Today and proposed (data-keys view-analysis,
+ *   view-proposal); the price waterfall is a drill-down of the Contract analysis (link a.sublink "See the price waterfall" at the
+ *   end of its subtitle, data-key to-waterfall; on the waterfall the Contract analysis tab is selected and a.backlink "Back to the
+ *   Contract analysis" sits above the band (data-key wf-back) and at the left of the bottom row (wf-back2)).
  *   #agreement/<c> or #agreement/<c>/analysis       Contract analysis (default view of one customer)
  *   #agreement/<c>/analysis/<lineId>                the same with that line's Details open (applied once when the route is
  *                                                   reached, scrolled into view; closing that Details returns the hash to #agreement/<c>)
- *   #agreement/<c>/waterfall[/proposed]             Agreement today / proposed (SPEC5c 3): the band and the price waterfall, the
+ *   #agreement/<c>/proposal                         Today and proposed (SPEC13 2): read-only, from E.todayProposed (below)
+ *   #agreement/<c>/waterfall[/proposed]             Price waterfall today / proposed (SPEC5c 3): the band and the waterfall, the
  *                                                   picture of the Contract analysis table (same rows: E.waterfall), read-only;
  *                                                   clicking a line goes to #agreement/<c>/analysis/<lineId>
  *   #agreement/<c>/waterfall/today/packs            By pack (SPEC5b G), only for a customer with pack groups (else the route
  *   #agreement/<c>/waterfall/proposed/packs         falls back to the waterfall): one table from E.packWaterfall, the pack
  *                                                   groups' share and promotional spend typed there. Control "All packs | By pack"
  *                                                   (data-keys packs-all, packs-by) in the first header cell of the block.
- *   #agreement/all                                  All customers (SPEC5 6.2): only the chart (no Today | Proposed; any option is
- *                                                   dropped, e.g. the old #agreement/all/proposed -> #agreement/all). The view
- *                                                   switch has a third option "Compare customers" (data-key view-all) = this chart;
- *                                                   on the chart the other two lead to the customer selected last (ui.lastCustomerId,
- *                                                   else the first). Each customer's pair is a link to #agreement/<c> (Contract
- *                                                   analysis). On step 3 the head's controls wrap to their own row under the
- *                                                   subtitle when they do not fit beside the one-line title (CSS).
+ *   #agreement/all                                  All customers (SPEC5 6.2): only the chart, no view switch (any option is
+ *                                                   dropped, e.g. the old #agreement/all/proposed -> #agreement/all). Each
+ *                                                   customer's pair is a link to #agreement/<c> (Contract analysis). On step 3 the
+ *                                                   head's controls wrap to their own row under the subtitle when they do not fit
+ *                                                   beside the one-line title (CSS).
  *   The old #agreement/<c>/proposed becomes #agreement/<c>/waterfall/proposed. Coming from another screen, step 3 opens on Contract
- *   analysis. Next: Contract analysis -> "Next: Agreement today" -> "Next: Track & trace". View switch data-keys: view-analysis,
- *   view-waterfall; Today | Proposed: mode-today, mode-proposed (they keep /packs).
+ *   analysis. Next: Contract analysis and the waterfall -> "Next: Today and proposed" -> "Next: Track & trace". Today | Proposed
+ *   of the waterfall: mode-today, mode-proposed (they keep /packs).
  *
  * ENGINE — TTS.engine (E). mode is 'today' | 'proposed'. Amounts in SEK m; shares and pct are fractions (0.124 = 12.4%).
  *   amount(line,mode), type(line,mode), priorityId(line,mode), priority(id), hasNumber(line) (counterpart, target, date),
@@ -201,7 +214,16 @@
  *     linked* are linkedShare() objects { amount, total, share }; counterparts.lines = conditional-type lines today, smart = the ones
  *     with smart(today).pass (all five letters), toImprove = lines − smart.
  *   spendByPriority, kpis, allKpis, moneyAtStake, moneyByStatus, growth (the first net today against revenueLY),
- *   opportunitySize, suggestedMustWin, mustWin, opportunities (kinds: unconditional, partial, nopriority, growth, gap),
+ *   opportunities (kinds: unconditional, partial, nopriority, growth, gap) · oppKey(opportunity) -> 'line-<id>' (unconditional,
+ *     partial), 'nopriority', 'growth', 'gap-<priority id>' (SPEC13 3; the must-win battle and opportunitySize are gone)
+ *   todayProposed(customer) -> { total: { today, proposed }, cls: { today, proposed } (summary objects), linked: { today, proposed }
+ *     (linkedShare objects), pri: { today, proposed } (spendByPriority lists, "No priority" last), same (sameMoney), moves }:
+ *     the page "Today and proposed" and its Excel sheet (SPEC13 2), from the same functions as the Contract analysis.
+ *   moves(customer) -> the points whose class, priority changes or whose amount goes down, in line order: [{ lineId, name, amount
+ *     (today), classFrom, classTo ('' when the class stays), prio ('' | 'now linked to X' | 'no longer linked to a priority'),
+ *     why, money ('SEK 1.1 m moves to A +0.5 and B +0.6' | 'SEK 1.6 m of the SEK 2.5 m that moves to …' | '… less' | '… folded
+ *     into the list price: it leaves the trade terms' | '… removed' | ''), tag 'Same money' | 'Moved' }] · moveText(move) -> the
+ *     same as one plain sentence
  *   elapsed, statusLabel(status), isPercent(unit), paidAhead(customer), paidAheadTotal(customers),
  *   BUCKETS, bucketOf(line, mode) ('Unconditional' unless classOf is 'conditional'), spendByBucket(lines, mode)
  *   Monthly rows (SPEC5 3.4): periodMonths(start, end) -> 12 booleans (months the period touches) · defaultPlan(kpiLike) -> 12
@@ -219,7 +241,10 @@
  *
  * DATA MODEL (SPEC5 1)
  *   customer: { id, name, channel, example, sourceNote, listSales (gross revenue at list price this year, SEK m), revenueLY (net
- *     invoice sales last year), investmentLY, promoSpend, packs?, mustWinId, scriptEdits, lines }   — revenueTY is gone
+ *     invoice sales last year), investmentLY, promoSpend, packs?, scriptEdits, trees, lines }   — revenueTY and mustWinId are gone
+ *     scriptEdits (SPEC13 3): { opening? } only, the opening sentence when it differs from the generated one
+ *     trees (SPEC13 3): { '<opportunity key>': { propose, objections: [{ say, answer, fallback }] (1 to 3) } }, stored on the first
+ *       edit of a box; the example customers start with EX_TREES; a key that is no longer an opportunity is kept but not shown
  *     promoSpend (SPEC5b A): promotional spend this year, SEK m, the user's estimate (0 by default); not a contract point
  *     packs (optional; absent = no pack groups; imported customers have none): [{ name, share (% of gross revenue; the shares
  *       should add up to 100, nothing forces it), promo (SEK m) }]; with packs, promoSpend = the sum of promo (TTS.recalc)
@@ -329,7 +354,14 @@
  *   (no bottom rule). A row without a note that is not being edited has no note row. Icon set: icon('pencil').
  *   Import (prefix imp-, SPEC11 2): div.imp-check[.fresh] > .label + three div.imp-ck (style --i: 0..2) > span.imp-tick +
  *   .imp-tx > .imp-main + .imp-det (line 3: + .imp-det2)
- *   Agreement today (prefix wf-): .stats.bkband.wf-band[.prop] (three stats, .wf-l2 / .wf-today extra label lines, then
+ *   Today and proposed (prefix tp-, SPEC13 2): .tp-view > .tp-tiles (four .tp-tile: .tp-tl label, .tp-tv figure = .tp-t today +
+ *   .tp-arrow + .tp-p[.up] proposed, .tp-ts sub-line; two by two below 1100 px) + three section.card.tp-card (h2.label, muted): the
+ *   class bars and the priority bars (.tp-bars grid: .tp-blab label, span.tp-bar[role=img] > i.tp-seg(.tp-u|.tp-n|.tp-c|.tp-none
+ *   or an inline navy shade)[.dk = white text] > b share (b.tp-hide when it does not fit, set by fitSegLabels after render and on
+ *   resize), .tp-btot total; .tp-legend, .tp-sw swatch, .tp-ln name, .tp-lv "today → proposed") and "What moves" (.tp-moves >
+ *   a.tp-mv -> #agreement/<c>/analysis/<lineId>: .tp-mn name + .tp-ma amount, .tp-mw sentence, .tp-mt chip; or p.tp-same).
+ *   Step 3 links: a.sublink (to the waterfall), a.backlink > .backarrow (back), .wf-back, .wf-bottomleft.
+ *   Price waterfall (prefix wf-): .stats.bkband.wf-band[.prop] (three stats, .wf-l2 / .wf-today extra label lines, then
  *   bucketChart) · .wf-block > table.wf (col.wf-c-lab/-amt/-pct/-bar; th.wf-th0 holds the All packs | By pack .segctl.small) ·
  *   tr.wf-anchor.wf-k-<key> (.wf-an label, .wf-ah hint) · tr.wf-line.click[.wf-zero] (data-action go to the analysis/<lineId>
  *   route; .wf-ln > .dot.bk-<key> + a.wf-n + .wf-tag + .chip.wf-chip) · tr.wf-promo (.dot.wf-pdot) · td.wf-amt, td.wf-pct ·
@@ -344,7 +376,7 @@ var TTS = (function (global) {
   'use strict';
 
   var HAS_DOM = typeof document !== 'undefined' && typeof window !== 'undefined';
-  var STORE_KEY = 'tts.state.v6';
+  var STORE_KEY = 'tts.state.v7';
   var TTS = { screens: {}, actions: {}, changes: {}, state: null, lastImport: null, pop: null };
 
   var SCREENS = [
@@ -536,6 +568,61 @@ var TTS = (function (global) {
     c8: ['An allowance of 1.44% of net invoice sales is paid when at least 90% of orders are placed by EDI in full pallets.', 'Lower handling cost for both parties.',
       'Keep', 'A fair exchange for EDI orders in full pallets.']
   };
+  // SPEC13 3: the negotiation tree of every top opportunity of the example customers, keyed by customer and opportunity key
+  // (E.oppKey): [We propose, [[They say, We answer, Fallback], …]]
+  var EX_TREES = {
+    a: {
+      'line-a1': ['Keep SEK 10.6 m of the agreement discount and move SEK 1.1 m to new packs and zero sugar shelf space.', [
+        ['The agreement discount is not up for discussion.', 'The total stays at SEK 26.0 m. SEK 1.1 m moves to new packs and shelf space you can earn in full.', 'Move SEK 0.5 m this year and the rest next year.'],
+        ['We will lose margin on every case we buy.', 'No. The same money comes back to you for listings and shelf space you already plan to give.', 'Pay the moved money every quarter, so the cash comes in as before.'],
+        ['Why should we earn back what we already get?', 'Because then both sides see what the money buys: six new packs listed and the zero sugar planogram in 90% of stores.', 'Start with the listing fee only and look at shelf space at mid-year.']]],
+      'line-a3': ['Keep the year-end bonus at SEK 3.6 m and pay it for checkout coolers with single serve in 60 stores.', [
+        ['This bonus was always guaranteed.', 'The amount stays the same. Only the reason for paying becomes clear.', 'Link half of it this year, and the rest next year.'],
+        ['We cannot fit coolers in 60 stores.', 'Start with the 40 largest stores. We supply and install the coolers.', 'Count any chilled single-serve point, not only coolers.'],
+        ['What happens if we miss the target?', 'It is paid per store delivered: 50 stores means 50 of 60 parts.', 'Review the store list together in September.']]],
+      'nopriority': ['Keep the logistics allowance at SEK 1.5 m for 85% of orders in full pallets: a fair exchange, even without a priority.', [
+        ['Full pallets do not suit our smaller stores.', 'The target is 85% of the orders to your central warehouse, not every store delivery.', 'Count mixed full pallets as full pallets too.'],
+        ['Then why not raise the allowance?', 'It pays for lower handling costs on both sides. While the saving stays the same, the allowance stays at SEK 1.5 m.', 'Look at it again next year with the figures from the order system.']]],
+      'line-a5': ['Keep marketing support at SEK 0.8 m and write it down: 300 stores activated with single serve by 30 April, each with a photo.', [
+        ['We always agree the activations during the year.', 'We can still choose them together. The contract only fixes how many stores and by when.', 'Write the number of stores now and the date at the spring meeting.'],
+        ['Photo reports from 300 stores are too much work.', 'Your field team already visits these stores. One photo per store is enough, and we collect them.', 'Accept a store list signed by your regional manager instead of photos.']]],
+      'gap-p1': ['Put SEK 4.4 m behind single serve: the year-end bonus for checkout coolers and marketing support for store activations.', [
+        ['Single serve is not a priority for us this year.', 'It adds no money. It is the same SEK 4.4 m, now paid for coolers and activations in your stores.', 'Start with checkout coolers only and add the activations next year.'],
+        ['Our checkouts have no room for coolers.', 'We start with the stores that have room, and we supply and install the coolers.', 'Use a chilled shelf near the checkout where a cooler does not fit.']]]
+    },
+    b: {
+      'line-b1': ['Keep SEK 12.1 m of the agreement discount and move SEK 1.6 m to new stores, new packs and zero sugar end caps.', [
+        ['Our members count on this discount.', 'The members keep the money in a new form: support for new stores, new packs and end caps they can earn.', 'Move SEK 0.8 m this year and the rest next year.'],
+        ['The group cannot promise what member stores do.', 'Each counterpart is something the group already decides: the member range, the central leaflet and new store openings.', 'Pay per member store that delivers, not for the whole group.']]],
+      'line-b2': ['Keep the central service fee at SEK 3.6 m and write down the services it pays for: central purchasing and invoicing.', [
+        ['The fee has never needed a description.', 'The amount does not change. A clear description protects the fee when the agreement is reviewed.', 'Add the description at the next renewal, not now.'],
+        ['Next you will ask us to cut it.', 'No. It stays at SEK 3.6 m this year. We only want to know what it buys.', 'Agree that any change is discussed a year ahead.']]],
+      'nopriority': ['Keep the regional member fund at SEK 2.1 m and use the six trade fairs to show zero sugar to member store owners.', [
+        ['The fairs are for the members, not for your products.', 'The stand stays the same. We only choose what we show and offer to taste there: zero sugar.', 'Show zero sugar at three of the six fairs.'],
+        ['Our members decide what they stock, not us.', 'We only ask for a tasting at the stand. What each store lists stays its own choice.', 'Share the tasting results with the members after each fair.']]],
+      'growth': ['Hold the total at SEK 33.1 m: last year our investment grew 4.0% while net invoice sales grew 2.0%.', [
+        ['We need more support, not less.', 'The support you earn grows: new stores, new packs and end caps get SEK 2.5 m more.', 'Keep the total at SEK 33.7 m, with the new split.'],
+        ['Sales grew less for reasons outside our control.', 'That is why we pay more for what you do control: new packs listed, coolers in new stores and end caps.', 'Review the split together at mid-year, with the total unchanged.']]]
+    },
+    c: {
+      'line-c1': ['Keep SEK 4.4 m of the agreement discount and move SEK 0.5 m to coolers and zero sugar in the outlets.', [
+        ['The discount was agreed for the whole year.', 'It stays for the whole year. SEK 0.5 m of it moves to coolers and zero sugar you can earn.', 'Move SEK 0.25 m this year and the rest next year.'],
+        ['We cannot control what the outlets do.', 'You choose where the coolers go and which outlets get zero sugar. We pay for that.', 'Count only the outlets your own sales reps visit.']]],
+      'line-c2': ['Keep the payment terms discount at SEK 2.4 m for invoices paid within 20 days.', [
+        ['Twenty days is too short for us.', 'The discount pays for the 20 days. A longer term would need a smaller discount.', 'Accept 25 days in the summer months.'],
+        ['Why is a payment discount on this list at all?', 'Because it has no counterpart in store. It stays as it is; we only show it clearly.', 'Leave it out of this year\'s talks and review it next year.']]],
+      'nopriority': ['Keep the sell-out files and the logistics allowance at SEK 2.4 m: both are fair exchanges, even without a priority.', [
+        ['The sell-out files take our team time every month.', 'That is why we pay SEK 0.4 m for them: twelve files a year, each by the 10th.', 'Send the files every quarter for the smaller outlets.'],
+        ['EDI orders are hard for some of our depots.', 'The target is 90% of orders, so a few depots can still order by phone.', 'Count the depots that move to EDI during the year.']]]
+    }
+  };
+  function exTrees(id) {
+    var out = {}, t = EX_TREES[id] || {};
+    Object.keys(t).forEach(function (k) {
+      out[k] = { propose: t[k][0], objections: t[k][1].map(function (o) { return { say: o[0], answer: o[1], fallback: o[2] }; }) };
+    });
+    return out;
+  }
   // SPEC11 4: what the KAM will do and the proposed wording, per line [kamNote, propClause]
   var EX_KAM = {
     a5: ['Clarify the wording: add the number of stores, the date and the proof.',
@@ -601,7 +688,7 @@ var TTS = (function (global) {
     var C = 'conditional', UN = 'unconditional', ON = 'On invoice', OFF = 'Off invoice', FIX = 'Fixed amount';
     var LI = 'Listings', SH = 'Shelf space', IS = 'In-store marketing', PR = 'Promotions', EF = 'Efficiency';
     var YEAR = 2027, DEMO = '2027-06-15';
-    function cust(id, name, channel, listSales, rLY, iLY, lines, mustWin) {
+    function cust(id, name, channel, listSales, rLY, iLY, lines) {
       lines.forEach(function (l) {
         var t = EX_TEXT[l.id];
         if (t) { l.clause = t[0]; l.justification = t[1]; l.action = t[2]; l.why = t[3]; }
@@ -621,12 +708,12 @@ var TTS = (function (global) {
       return { id: id, name: name, channel: channel, example: true, sourceNote: 'Example data', listSales: listSales, revenueLY: rLY,
         investmentLY: iLY, promoSpend: EX_PROMO[id] || 0,
         packs: (EX_PACKS[id] || []).map(function (p) { return { name: p[0], share: p[1], promo: p[2] }; }),
-        mustWinId: mustWin || null, scriptEdits: {}, lines: lines };
+        scriptEdits: {}, trees: exTrees(id), lines: lines };
     }
     var a5 = L('a5', 'Marketing support', 0.8, FIX, IS, C, null, 'Stores activated with single serve in the regions', null, 'stores', null, null, 'Store visit report', 'Trade marketing', null, 0.8, C, 'p1');
     a5.priorityDecided = false;   // the priority is still open: the tool suggests Drive single serve (SPEC5 2.3)
     return {
-      version: 6, year: YEAR, demoDate: DEMO,
+      version: 7, year: YEAR, demoDate: DEMO,
       priorities: [
         { id: 'p1', name: 'Drive single serve', winning: 'Chilled single serve at every checkout and every food-to-go spot.' },
         { id: 'p2', name: 'Grow zero sugar', winning: 'Zero sugar on shelf, cold and in every promotion.' },
@@ -938,7 +1025,7 @@ var TTS = (function (global) {
       return { key: b.key, name: b.name, color: b.color, amount: a, share: total > 0 ? a / total : 0 };
     });
   };
-  // THE price structure of a customer in a view (SPEC5c 1): the Contract analysis table AND the Agreement today picture are both
+  // THE price structure of a customer in a view (SPEC5c 1): the Contract analysis table AND the price waterfall picture are both
   // drawn from these rows (same rows, same order, same numbers). Every row has the same keys:
   // { kind: 'anchor'|'line'|'promo', key ('gross'|'firstNet'|'secondNet'|'thirdNet' on anchors, 'promo' on the promo row, null on
   //   lines), block ('on'|'off' on lines, null elsewhere), label, hint (text or null), amount (SEK m, positive; a deduction is shown
@@ -1144,24 +1231,6 @@ var TTS = (function (global) {
     var excess = c.revenueLY > 0 ? total - c.investmentLY * (net / c.revenueLY) : 0;
     return { investment: inv, revenue: rev, faster: inv > rev, excess: excess };
   };
-  E.opportunitySize = function (c) {
-    var total = 0, good = 0;
-    c.lines.forEach(function (l) {
-      var a = E.amount(l, 'today');
-      total += a;
-      if (E.classOf(l, 'today') === 'conditional' && E.priorityId(l, 'today')) good += a;
-    });
-    return total - good;
-  };
-  E.suggestedMustWin = function (c) {
-    var best = null;
-    E.spendByPriority(c.lines, 'today').forEach(function (e) {
-      if (!e.priorityId) return;
-      if (!best || e.amount < best.amount - 1e-9) best = e;
-    });
-    return best ? best.priorityId : null;
-  };
-  E.mustWin = function (c) { return (c.mustWinId && E.priority(c.mustWinId)) ? c.mustWinId : E.suggestedMustWin(c); };
   var MISSING_WORD = { counterpart: 'a counterpart', target: 'a target', date: 'a date', owner: 'an owner' };
   E.opportunities = function (c) {
     var items = [], lines = c.lines;
@@ -1202,6 +1271,60 @@ var TTS = (function (global) {
       return b.money - a.money;
     });
     return items.slice(0, 6);
+  };
+  // SPEC13 3: a stable key for an opportunity, safe in a hash: line-<id> (unconditional, partial), nopriority, growth, gap-<priority id>
+  E.oppKey = function (o) {
+    if ((o.kind === 'unconditional' || o.kind === 'partial') && o.lineIds.length === 1) return 'line-' + o.lineIds[0];
+    if (o.kind === 'gap') return 'gap-' + o.priorityId;
+    return o.kind;
+  };
+  // SPEC13 2: the figures of the page "Today and proposed" of one customer, from the same functions as the Contract analysis
+  // (summary, linkedShare, spendByPriority, sameMoney, classOf, amount, priorityId); also used by the Excel export
+  E.todayProposed = function (c) {
+    var lines = c.lines, sT = E.summary(lines, 'today'), sP = E.summary(lines, 'proposed');
+    return {
+      total: { today: sT.total, proposed: sP.total },
+      cls: { today: sT, proposed: sP },
+      linked: { today: E.linkedShare(lines, 'today'), proposed: E.linkedShare(lines, 'proposed') },
+      pri: { today: E.spendByPriority(lines, 'today'), proposed: E.spendByPriority(lines, 'proposed') },
+      same: E.sameMoney(c),
+      moves: E.moves(c)
+    };
+  };
+  // SPEC13 2(d): the contract points whose proposal differs from today (class, priority, or less money), in line order.
+  // Each { lineId, name, amount (today), classFrom, classTo (labels, '' when the class stays), prio ('' | 'now linked to X' |
+  // 'no longer linked to a priority'), why, money ('' or the sentence on the money), tag 'Same money' | 'Moved' }
+  E.moves = function (c) {
+    var lines = c.lines, ZERO = { 'Fold into the list price': 1, 'Remove': 1 };
+    function a(l, m) { return r1(E.amount(l, m)); }
+    var losers = lines.filter(function (l) { return a(l, 'proposed') < a(l, 'today') && !ZERO[l.action]; });
+    var gainers = lines.filter(function (l) { return a(l, 'proposed') > a(l, 'today'); });
+    var moved = losers.reduce(function (s, l) { return s + a(l, 'today') - a(l, 'proposed'); }, 0);
+    var gainText = listJoin(gainers.map(function (l) { return l.name + ' ' + fmt.delta(a(l, 'proposed') - a(l, 'today')); }));
+    var out = [];
+    lines.forEach(function (l) {
+      var cT = E.classOf(l, 'today'), cP = E.classOf(l, 'proposed'), pT = E.priorityId(l, 'today'), pP = E.priorityId(l, 'proposed');
+      var aT = a(l, 'today'), aP = a(l, 'proposed'), down = aP < aT;
+      if (cT === cP && pT === pP && !down) return;
+      var prio = pT === pP ? '' : pP ? 'now linked to ' + E.priority(pP).name : 'no longer linked to a priority';
+      var money = '';
+      if (down) {
+        var d = aT - aP;
+        if (l.action === 'Fold into the list price') money = fmt.money(d) + ' folded into the list price: it leaves the trade terms';
+        else if (l.action === 'Remove') money = fmt.money(d) + ' removed';
+        else if (!gainers.length) money = fmt.money(d) + ' less';
+        else money = fmt.money(d) + (losers.length > 1 ? ' of the ' + fmt.money(moved) + ' that moves to ' : ' moves to ') + gainText;
+      }
+      out.push({ lineId: l.id, name: l.name, amount: E.amount(l, 'today'), classFrom: cT === cP ? '' : E.CLASS_LABEL[cT], classTo: cT === cP ? '' : E.CLASS_LABEL[cP],
+        prio: prio, why: String(l.why || '').trim(), money: money, tag: aP === aT ? 'Same money' : 'Moved' });
+    });
+    return out;
+  };
+  // the plain sentence of a move (Excel, copy): "Unconditional → Conditional, now linked to X. Why." + the money sentence
+  E.moveText = function (m) {
+    var head = m.classFrom ? m.classFrom + ' → ' + m.classTo + (m.prio ? ', ' + m.prio : '') : m.prio ? m.prio.charAt(0).toUpperCase() + m.prio.slice(1) : '';
+    var t = head ? head + '.' + (m.why ? ' ' + m.why : '') : '';
+    return (t && m.money ? t + ' ' : t) + (m.money ? m.money.charAt(0).toUpperCase() + m.money.slice(1) : '');
   };
   TTS.engine = E;
 
@@ -1289,11 +1412,26 @@ var TTS = (function (global) {
 
   // ---------------------------------------------------------------- persistence
   function valid(st) {
-    return st && st.version === 6 && Array.isArray(st.customers) && Array.isArray(st.priorities) && finite(st.year) && typeof st.demoDate === 'string';
+    return st && st.version === 7 && Array.isArray(st.customers) && Array.isArray(st.priorities) && finite(st.year) && typeof st.demoDate === 'string';
   }
   // fills every missing customer and line field with its default, so an imported or hand-edited state never breaks
   function normCustomer(c, y, demo) {
-    c.lines = Array.isArray(c.lines) ? c.lines : []; c.scriptEdits = c.scriptEdits || {};
+    c.lines = Array.isArray(c.lines) ? c.lines : [];
+    // SPEC13 3: of the old script edits only the opening sentence is kept; the must-win battle is gone; trees per opportunity key
+    var se = c.scriptEdits && typeof c.scriptEdits === 'object' ? c.scriptEdits : {};
+    c.scriptEdits = typeof se.opening === 'string' ? { opening: se.opening } : {};
+    delete c.mustWinId;
+    var tr = c.trees && typeof c.trees === 'object' ? c.trees : {};
+    c.trees = {};
+    Object.keys(tr).forEach(function (k) {
+      var t = tr[k];
+      if (!t || typeof t !== 'object' || !/^[a-z0-9-]+$/i.test(k)) return;
+      var str = function (v) { return typeof v === 'string' ? v : ''; };
+      var obs = (Array.isArray(t.objections) ? t.objections : []).filter(function (o) { return o && typeof o === 'object'; }).slice(0, 3)
+        .map(function (o) { return { say: str(o.say), answer: str(o.answer), fallback: str(o.fallback) }; });
+      if (!obs.length) obs = [{ say: '', answer: '', fallback: '' }];
+      c.trees[k] = { propose: str(t.propose), objections: obs };
+    });
     c.lines.forEach(function (l) { normLine(l, y, demo); });
     if (!finite(c.listSales)) {
       var onInv = c.lines.reduce(function (s, l) { return s + (l.paidHow === 'On invoice' && finite(l.amount) ? l.amount : 0); }, 0);
@@ -1316,7 +1454,7 @@ var TTS = (function (global) {
   TTS.load = function () {
     var st = null;
     try {
-      if (global.localStorage) { global.localStorage.removeItem('tts.state.v5'); global.localStorage.removeItem('tts.state.v4'); }   // the old example data (SPEC11 4)
+      if (global.localStorage) ['tts.state.v6', 'tts.state.v5', 'tts.state.v4'].forEach(function (k) { global.localStorage.removeItem(k); });   // the old example data (SPEC13 3)
       var raw = global.localStorage && global.localStorage.getItem(STORE_KEY);
       if (raw) st = JSON.parse(raw);
     } catch (e) { st = null; }
@@ -1798,7 +1936,7 @@ var TTS = (function (global) {
       sourceNote: 'Imported from "' + (fileName || 'file.xlsx') + '" on ' + fmt.date(isoOf(new Date())),
       listSales: listSales, revenueLY: fnum('revenue last year (sek m)'), investmentLY: fnum('investment last year (sek m)'),
       promoSpend: fnum('promotional spend (sek m)'),   // SPEC5b D; pack groups are not imported
-      mustWinId: null, scriptEdits: {}, lines: lines
+      scriptEdits: {}, trees: {}, lines: lines
     };
     // monthly rows from the target, the period and the actual (SPEC5 3.4); the variable lines' amounts (TTS.recalc, SPEC5b A)
     normCustomer(customer, TTS.state.year, TTS.state.demoDate);
@@ -1849,9 +1987,9 @@ var TTS = (function (global) {
     if (!ok) { r = { screen: 'priorities', scope: defaultScope(), option: '', sub: '', extra: '' }; fixed = true; }
     if (r.scope !== 'all' && !TTS.customer(r.scope)) { r.scope = defaultScope(); fixed = true; }
     r.packs = false;
-    // step 3 (SPEC5 4, SPEC5c): one customer has two views, Contract analysis ('' or 'analysis', sub = a line id with its Details
-    // open) and Agreement today ('waterfall', sub 'proposed'; 'waterfall/today/packs' and 'waterfall/proposed/packs' = by pack, only
-    // for a customer with pack groups); All customers is the one chart ('' only). The old 'proposed' of one customer becomes
+    // step 3 (SPEC5 4, SPEC5c): one customer has Contract analysis ('' or 'analysis', sub = a line id with its Details
+    // open), the price waterfall ('waterfall', sub 'proposed'; 'waterfall/today/packs' and 'waterfall/proposed/packs' = by pack, only
+    // for a customer with pack groups) and Today and proposed ('proposal', SPEC13 2); All customers is the one chart ('' only). The old 'proposed' of one customer becomes
     // waterfall/proposed.
     if (r.screen === 'agreement') {
       if (r.scope === 'all') {
@@ -1863,6 +2001,8 @@ var TTS = (function (global) {
         if ((r.sub === 'today' || r.sub === 'proposed') && r.extra === 'packs' && cu && Array.isArray(cu.packs) && cu.packs.length) { r.packs = true; r.extra = ''; }
         if (r.sub === 'today') { r.sub = ''; if (!r.packs) fixed = true; }
         if (r.sub && r.sub !== 'proposed') { r.sub = ''; fixed = true; }
+      } else if (r.option === 'proposal') {
+        if (r.sub) { r.sub = ''; fixed = true; }   // SPEC13: the page "Today and proposed"
       } else if (r.option !== 'analysis') {
         if (r.option !== '' || r.sub) { r.option = ''; r.sub = ''; fixed = true; }
       }
@@ -1874,8 +2014,15 @@ var TTS = (function (global) {
       var okK = !!tc && !(r.scope !== 'all' && r.sub) && ((r.scope !== 'all' && tk === 'none') || E.kpis(tc).some(function (k) { return k.id === tk; }));
       if (!okK) { r.option = ''; r.sub = ''; fixed = true; }
     }
+    // SPEC13: the Negotiation plan of one customer: #plan/<c>/<opportunity key>; a key that is not (any more) one of that customer's
+    // opportunities (e.g. the old #plan/<c>/objections) falls back to #plan/<c>; All customers takes no option
+    if (r.screen === 'plan' && (r.option || r.sub)) {
+      var pc = r.scope !== 'all' && TTS.customer(r.scope);
+      var okP = !!pc && !r.sub && E.opportunities(pc).some(function (o) { return E.oppKey(o) === r.option; });
+      if (!okP) { r.option = ''; r.sub = ''; fixed = true; }
+    }
     if (r.extra) { r.extra = ''; fixed = true; }
-    r.view = r.screen === 'agreement' && r.scope !== 'all' ? (r.option === 'waterfall' ? 'waterfall' : 'analysis') : '';
+    r.view = r.screen === 'agreement' && r.scope !== 'all' ? (r.option === 'waterfall' ? 'waterfall' : r.option === 'proposal' ? 'proposal' : 'analysis') : '';
     r.fixed = fixed;
     return r;
   };
@@ -1885,7 +2032,7 @@ var TTS = (function (global) {
     if (location.hash === h) render(); else location.hash = h;
   };
   // the option to keep when moving to `screen` (toAll: the target scope is All customers). Agreement: from another screen
-  // always Contract analysis (or All customers today); inside step 3 the Agreement today view and Today|Proposed are kept.
+  // always Contract analysis (or All customers today); inside step 3 the price waterfall, Today|Proposed and Today and proposed are kept.
   function optionFor(screen, r, toAll) {
     // Track & trace keeps an open KPI panel across the scope switch: #track/a/a6 <-> #track/all/a/a6
     if (screen === 'track') {
@@ -1897,7 +2044,7 @@ var TTS = (function (global) {
     if (!r || r.screen !== 'agreement') return '';
     var prop = r.option === 'proposed' || r.sub === 'proposed';
     if (toAll || r.scope === 'all') return '';
-    return r.option === 'waterfall' ? 'waterfall' + (prop ? '/proposed' : '') : '';
+    return r.option === 'waterfall' ? 'waterfall' + (prop ? '/proposed' : '') : r.option === 'proposal' ? 'proposal' : '';
   }
   function routeHash(r) {
     if (r.packs) return hashFor(r.screen, r.scope, r.option + '/' + (r.sub || 'today') + '/packs');
@@ -1933,11 +2080,11 @@ var TTS = (function (global) {
     }).join('') + '</div></nav>';
   }
   // "Next: Import →" for the current route (keeps the scope); '' on the last step. Step 3 of one customer walks
-  // Contract analysis → Agreement today → Track & trace (SPEC5 4).
+  // Contract analysis (and its price waterfall) → Today and proposed → Track & trace (SPEC13 1).
   function nextButton(r) {
     r = r || TTS.route();
     function btn(href, label) { return '<a class="btn primary nextbtn" href="' + href + '" data-key="next">Next: ' + esc(label) + icon('arrow-right') + '</a>'; }
-    if (r.view === 'analysis') return btn(hashFor('agreement', r.scope, 'waterfall'), 'Agreement today');
+    if (r.view === 'analysis' || r.view === 'waterfall') return btn(hashFor('agreement', r.scope, 'proposal'), 'Today and proposed');
     var i = -1;
     SCREENS.forEach(function (s, j) { if (s.id === r.screen) i = j; });
     var nx = SCREENS[i + 1];
@@ -2311,7 +2458,6 @@ var TTS = (function (global) {
       if (!ok) return;
       st.priorities = st.priorities.filter(function (p) { return p.id !== id; });
       st.customers.forEach(function (c) {
-        if (c.mustWinId === id) c.mustWinId = null;
         c.lines.forEach(function (l) {
           if (l.priorityId === id) l.priorityId = null;
           if (l.propPriorityId === id) l.propPriorityId = null;
@@ -2484,46 +2630,65 @@ var TTS = (function (global) {
     });
   };
 
-  // ================================================================ SCREEN 3 — Agreement (SPEC5 4 and 5)
-  // One customer: two views behind a switch at the right of the page head, Contract analysis (default; route '' or 'analysis',
-  // 'analysis/<lineId>' opens that line's Details) and Agreement today (route 'waterfall' or 'waterfall/proposed': the price
-  // waterfall of Part 2, a stub for now). All customers: the table of the fourth pass until Part 2 replaces it.
+  // ================================================================ SCREEN 3 — Agreement (SPEC5 4 and 5, SPEC13 1)
+  // One customer: two tabs at the right of the page head, Contract analysis (default; route '' or 'analysis', 'analysis/<lineId>'
+  // opens that line's Details) and Today and proposed (route 'proposal'). The price waterfall (route 'waterfall' or
+  // 'waterfall/proposed', and the by-pack table) is a drill-down of the Contract analysis, reached by a link under its title; on it
+  // the Contract analysis tab is selected. All customers: the comparison chart, with no view switch.
   function segTab(label, href, on, key) {
     return '<a role="tab" class="' + (on ? 'on' : '') + '" aria-selected="' + on + '" href="' + href + '" data-key="' + key + '">' + label + '</a>';
   }
-  // view 'all' = the chart: c is then the customer selected last (the first one if none)
   function viewSwitch(c, view) {
     return '<div class="segctl" role="tablist" aria-label="View">' + segTab('Contract analysis', hashFor('agreement', c.id, ''), view === 'analysis', 'view-analysis') +
-      segTab('Agreement today', hashFor('agreement', c.id, 'waterfall'), view === 'waterfall', 'view-waterfall') +
-      segTab('Compare customers', hashFor('agreement', 'all', ''), view === 'all', 'view-all') + '</div>';
+      segTab('Today and proposed', hashFor('agreement', c.id, 'proposal'), view === 'proposal', 'view-proposal') + '</div>';
+  }
+  // quiet text links of step 3 (SPEC13 1): to the price waterfall, and back to the Contract analysis
+  function wfLink(c) {
+    return '<a class="sublink" href="' + hashFor('agreement', c.id, 'waterfall') + '" data-key="to-waterfall">See the price waterfall' + icon('arrow-right', 14) + '</a>';
+  }
+  function backLink(c, key) {
+    return '<a class="backlink" href="' + hashFor('agreement', c.id, '') + '" data-key="' + key + '"><span class="backarrow">' + icon('arrow-right', 14) + '</span>Back to the Contract analysis</a>';
   }
   TTS.screens.agreement = {
     head: function (scope, c, r) {
       if (!c) {
-        var lc = TTS.customer(S().ui.lastCustomerId) || S().customers[0];
         return {
           title: 'Where the spend goes, <span class="hl">today and proposed</span>',
-          subtitle: 'Each customer by bucket, and how the share linked to a priority moves.',
-          actions: lc ? viewSwitch(lc, 'all') : ''
+          subtitle: 'Each customer by bucket, and how the share linked to a priority moves.'
         };
       }
       if (r.view === 'waterfall') {
         var prop = r.sub === 'proposed', pk = r.packs ? '/packs' : '';
         return {
-          title: 'The agreement <span class="hl">' + (prop ? 'proposed' : 'today') + '</span>, from gross revenue to net-net',
+          title: '<span class="hl">Price waterfall</span>: from gross revenue to net-net',
           subtitle: 'The same contract points as the Contract analysis, drawn as a price waterfall.',
-          actions: viewSwitch(c, 'waterfall') + '<div class="segctl" role="tablist" aria-label="Today or proposed">' +
+          actions: viewSwitch(c, 'analysis') + '<div class="segctl" role="tablist" aria-label="Today or proposed">' +
             segTab('Today', hashFor('agreement', c.id, 'waterfall' + (pk ? '/today' + pk : '')), !prop, 'mode-today') +
             segTab('Proposed', hashFor('agreement', c.id, 'waterfall/proposed' + pk), prop, 'mode-proposed') + '</div>'
         };
       }
+      if (r.view === 'proposal') {
+        return {
+          title: '<span class="hl">Today and proposed</span>: what changes for ' + esc(c.name),
+          subtitle: 'The same contract points as the Contract analysis, today and in the proposal.',
+          actions: viewSwitch(c, 'proposal')
+        };
+      }
       return {
         title: '<span class="hl">Contract analysis</span>: what the contract says, point by point',
-        subtitle: 'Each contract point with its money, its counterpart and what we propose.',
+        subtitle: 'Each contract point with its money, its counterpart and what we propose. ' + wfLink(c),
         actions: viewSwitch(c, 'analysis')
       };
     },
-    one: function (c, r) { return r.view === 'waterfall' ? waterfallView(c, r.sub === 'proposed' ? 'proposed' : 'today', r.packs) : analysisView(c); },
+    one: function (c, r) {
+      if (r.view === 'waterfall') return waterfallView(c, r.sub === 'proposed' ? 'proposed' : 'today', r.packs);
+      if (r.view === 'proposal') return proposalView(c);
+      return analysisView(c);
+    },
+    afterRender: function (root) {
+      fitSegLabels(root);
+      if (document.fonts && document.fonts.ready) document.fonts.ready.then(function () { fitSegLabels(document.getElementById('view')); });
+    },
     all: function () { return agreementAll(); }
   };
   function attrs(c, line, kpi, field, extra) {
@@ -2897,7 +3062,7 @@ var TTS = (function (global) {
       bottomRow('<button type="button" class="btn ghost addbtn" data-action="addLine" data-cust="' + esc(c.id) + '" data-key="line-add">' + icon('plus') + 'Add a contract point</button>');
   }
 
-  // ---------------------------------------------------------------- Agreement today (SPEC5c 3): the picture of the same table
+  // ---------------------------------------------------------------- Price waterfall (SPEC5c 3, SPEC13 1): the picture of the same table
   // The band: total trade terms, % of gross revenue, the third net, then the two bucket bars (SPEC4) and their legend
   function wfBand(c, mode) {
     var s = E.sales(c, mode), t = mode === 'proposed' ? E.sales(c, 'today') : null;
@@ -3005,12 +3170,92 @@ var TTS = (function (global) {
     var ctl = hasPacks ? '<div class="segctl small" role="tablist" aria-label="All packs or by pack">' +
       segTab('All packs', hashFor('agreement', c.id, 'waterfall' + (mode === 'proposed' ? '/proposed' : '')), !packs, 'packs-all') +
       segTab('By pack', hashFor('agreement', c.id, 'waterfall/' + sub + '/packs'), !!packs, 'packs-by') + '</div>' : '';
+    // SPEC13 1: a drill-down of the Contract analysis: a quiet way back above the band and at the left of the bottom row
+    var top = '<div class="wf-back">' + backLink(c, 'wf-back') + '</div>';
+    function bottom(cap) { return bottomRow('<div class="wf-bottomleft">' + backLink(c, 'wf-back2') + (cap ? '<p class="wf-cap">' + esc(cap) + '</p>' : '') + '</div>'); }
     if (packs && hasPacks) {
-      return wfBand(c, mode) + '<div class="wf-block">' + packBlock(c, mode, ctl) + '</div>' +
-        bottomRow('<p class="wf-cap">Contract points are spread across pack groups by revenue. Promotional spend is typed per pack group.</p>');
+      return top + wfBand(c, mode) + '<div class="wf-block">' + packBlock(c, mode, ctl) + '</div>' +
+        bottom('Contract points are spread across pack groups by revenue. Promotional spend is typed per pack group.');
     }
     var wb = waterfallBlock(c, mode, ctl);
-    return wfBand(c, mode) + '<div class="wf-block">' + wb.html + '</div>' + bottomRow(wb.caption ? '<p class="wf-cap">' + esc(wb.caption) + '</p>' : '');
+    return top + wfBand(c, mode) + '<div class="wf-block">' + wb.html + '</div>' + bottom(wb.caption);
+  }
+
+  // ---------------------------------------------------------------- Today and proposed (SPEC13 2): read-only, one customer
+  var TP_CLS = [['unconditional', 'u', 'Unconditional'], ['partial', 'n', 'Partially conditional'], ['conditional', 'c', 'Conditional']];
+  // shades of the tool's navy for the priorities (full navy to a light tint); text white on the dark ones
+  function navyShade(i, n) {
+    var t = n > 1 ? i / (n - 1) * 0.6 : 0, rgb = [35, 35, 65].map(function (v) { return Math.round(v + (255 - v) * t); });
+    return { bg: 'rgb(' + rgb.join(',') + ')', dark: t < 0.42 };
+  }
+  // one horizontal 100% bar: segments [{ amount, cls, style, title, dark }]; each segment's share as text (hidden by
+  // fitSegLabels when it does not fit); the total in SEK m at the right
+  function tpBar(label, segs, total) {
+    var inner = segs.filter(function (s) { return s.amount > 1e-9; }).map(function (s) {
+      var share = total > 0 ? s.amount / total : 0;
+      return '<i class="tp-seg ' + (s.cls || '') + (s.dark ? ' dk' : '') + '" style="flex-grow:' + share.toFixed(4) + (s.style ? ';' + s.style : '') + '" title="' +
+        esc(s.title + ': SEK ' + fmt.m(s.amount) + ' m, ' + fmt.pct(share)) + '"><b>' + fmt.pct(share) + '</b></i>';
+    }).join('');
+    var aria = label + ': ' + segs.filter(function (s) { return s.amount > 1e-9; }).map(function (s) { return s.title + ' ' + fmt.pct(total > 0 ? s.amount / total : 0); }).join(', ');
+    return '<span class="tp-blab">' + esc(label) + '</span><span class="tp-bar" role="img" aria-label="' + esc(aria) + '">' + inner + '</span>' +
+      '<span class="tp-btot">SEK ' + fmt.m(total) + ' m</span>';
+  }
+  // the share text of a segment shows only when it fits in the segment (never shrunk)
+  function fitSegLabels(root) {
+    if (!root || !root.querySelectorAll) return;
+    Array.prototype.forEach.call(root.querySelectorAll('.tp-seg > b'), function (b) {
+      b.classList.remove('tp-hide');
+      if (b.offsetWidth + 10 > b.parentNode.clientWidth) b.classList.add('tp-hide');
+    });
+  }
+  if (HAS_DOM) window.addEventListener('resize', function () { fitSegLabels(document.getElementById('view')); });
+  function proposalView(c) {
+    var d = E.todayProposed(c);
+    function tile(label, today, prop, sub, good, single) {
+      return '<div class="tp-tile"><div class="tp-tl">' + esc(label) + '</div><div class="tp-tv">' +
+        (single ? '<span class="tp-p">' + esc(prop) + '</span>' : '<span class="tp-t">' + esc(today) + '</span><span class="tp-arrow">→</span><span class="tp-p' + (good ? ' up' : '') + '">' + esc(prop) + '</span>') +
+        '</div><div class="tp-ts">' + esc(sub) + '</div></div>';
+    }
+    var dt = r1(d.total.proposed) - r1(d.total.today);
+    var cT = Math.round(d.cls.today.shareConditional * 100), cP = Math.round(d.cls.proposed.shareConditional * 100);
+    var tiles = '<div class="tp-tiles">' +
+      tile('Total trade terms', fmt.m(d.total.today), fmt.m(d.total.proposed), r1(dt) === 0 ? 'SEK m, same money' : 'SEK m, ' + fmt.delta(dt)) +
+      tile('Conditional', cT + '%', cP + '%', 'of the trade terms', cP > cT) +
+      tile('Linked to a priority', fmt.pct(d.linked.today.share), fmt.pct(d.linked.proposed.share), 'of the trade terms') +
+      tile('Improved at the same money', '', String(d.same.n), d.same.n ? (d.same.n === 1 ? 'counterpart, ' : 'counterparts, ') + fmt.money(d.same.amount) : 'none yet', false, true) + '</div>';
+    function clsSegs(s) {
+      return TP_CLS.map(function (x) { return { amount: s[x[0]], cls: 'tp-' + x[1], title: x[2], dark: x[0] === 'conditional' }; });
+    }
+    var clsCard = '<section class="card tp-card"><h2 class="label">How conditional is the money</h2><div class="tp-bars">' +
+      tpBar('Today', clsSegs(d.cls.today), d.cls.today.total) + tpBar('Proposed', clsSegs(d.cls.proposed), d.cls.proposed.total) + '</div>' +
+      '<div class="tp-legend">' + TP_CLS.map(function (x) { return '<span><i class="dot ' + x[1] + '"></i>' + x[2] + '</span>'; }).join('') + '</div></section>';
+    var np = d.pri.today.length - 1;   // the last entry is "No priority"
+    function priSegs(list) {
+      return list.map(function (e, i) {
+        if (!e.priorityId) return { amount: e.amount, cls: 'tp-none', title: 'No priority' };
+        var sh = navyShade(i, np);
+        return { amount: e.amount, style: 'background:' + sh.bg, dark: sh.dark, cls: sh.dark ? '' : 'lt', title: e.name };
+      });
+    }
+    var priLegend = d.pri.today.map(function (e, i) {
+      var sw = e.priorityId ? '<i class="tp-sw" style="background:' + navyShade(i, np).bg + '"></i>' : '<i class="tp-sw tp-none"></i>';
+      return '<span class="tp-li">' + sw + '<span class="tp-ln">' + esc(e.priorityId ? e.name : 'No priority') + '</span><span class="tp-lv">' + fmt.m(e.amount) +
+        ' → ' + fmt.m(d.pri.proposed[i].amount) + '</span></span>';
+    }).join('');
+    var priCard = '<section class="card tp-card"><h2 class="label">Is it aligned with CCEP\'s priorities</h2><div class="tp-bars">' +
+      tpBar('Today', priSegs(d.pri.today), d.cls.today.total) + tpBar('Proposed', priSegs(d.pri.proposed), d.cls.proposed.total) + '</div>' +
+      '<div class="tp-legend tp-plegend">' + priLegend + '</div></section>';
+    var rows = d.moves.map(function (m) {
+      var head = m.classFrom ? esc(m.classFrom) + ' → <b>' + esc(m.classTo) + '</b>' + (m.prio ? ', ' + esc(m.prio) : '')
+        : m.prio ? esc(m.prio.charAt(0).toUpperCase() + m.prio.slice(1)) : '';
+      var what = (head ? head + '.' + (m.why ? ' ' + esc(m.why) : '') : '') + (head && m.money ? ' ' : '') + esc(m.money);
+      return '<a class="tp-mv" href="' + hashFor('agreement', c.id, 'analysis/' + m.lineId) + '" data-key="tp-mv:' + esc(m.lineId) + '" title="Open in the Contract analysis">' +
+        '<span class="tp-mn"><b>' + esc(m.name) + '</b><span class="tp-ma">' + esc(fmt.money(m.amount)) + '</span></span>' +
+        '<span class="tp-mw">' + what + '</span><span class="tp-mt">' + chip(m.tag === 'Same money' ? 'green' : 'grey', m.tag) + '</span></a>';
+    }).join('');
+    var moveCard = '<section class="card tp-card"><h2 class="label">What moves, point by point</h2>' +
+      (rows ? '<div class="tp-moves">' + rows + '</div>' : '<p class="muted tp-same">The proposal is the same as today.</p>') + '</section>';
+    return '<div class="tp-view">' + tiles + clsCard + priCard + moveCard + '</div>' + bottomRow('');
   }
 
   // ---------------------------------------------------------------- All customers (SPEC5 6.2): one chart
@@ -3539,197 +3784,106 @@ var TTS = (function (global) {
 })();
 
 // ====================================================================================================
-/* Screen 5 — Negotiation plan. Registers into TTS.screens.plan (SPEC 8.5). All class names start with "pl-". */
+/* Screen 5 — Negotiation plan (SPEC13 3): the key figures, one opening sentence, the top opportunities as pills and the decision
+   tree of the selected one. Registers into TTS.screens.plan. Classes: pl- (key figures, print head), tr- (opening, pills, tree). */
 (function () {
   'use strict';
   var E = TTS.engine, fmt = TTS.fmt, ui = TTS.ui, esc = ui.esc, icon = ui.icon, hashFor = TTS.hashFor, listJoin = TTS.listJoin;
-  var EDIT_KEYS = ['opening', 'propose', 'ask', 'give', 'obj1q', 'obj1a', 'obj2q', 'obj2a', 'obj3q', 'obj3a', 'obj4q', 'obj4a'];
-  var SECTIONS = [['opening', 'Opening'], ['propose', 'What we propose']];
-  var ASK_GIVE = 'What we ask and what we give', ASK_GIVE_COLS = [['ask', 'We ask'], ['give', 'We give']];
 
   function S() { return TTS.state; }
   function r1(n) { return Math.round((+n || 0) * 10 + 1e-9) / 10; }
   function lcFirst(s) { s = String(s || ''); return s.charAt(0).toLowerCase() + s.slice(1); }
-  // period label in lower case, but a month name keeps its capital ("from March", "Feb to Nov")
-  function periodLower(start, end) {
-    var p = fmt.period(start, end);
-    return /^[A-Z][a-z]{2} to /.test(p) ? p : lcFirst(p);
-  }
-  function hasEdits(c) { return !!c && Object.keys(c.scriptEdits || {}).some(function (k) { return EDIT_KEYS.indexOf(k) >= 0; }); }
-  function norm(t) {
-    return String(t || '').replace(/\r/g, '').replace(/ /g, ' ').replace(/[ \t]+\n/g, '\n').replace(/\s+$/, '');
-  }
-  function entryFor(list, id) { for (var i = 0; i < list.length; i++) if (list[i].priorityId === id) return list[i]; return { amount: 0, share: 0 }; }
+  function blank(v) { return v === null || v === undefined || String(v).trim() === ''; }
+  function clean(v) { return String(v || '').replace(/\s*[\r\n]+\s*/g, ' ').trim(); }   // never store a line break
+  function findLine(c, id) { for (var i = 0; i < c.lines.length; i++) if (c.lines[i].id === id) return c.lines[i]; return null; }
+  function money(n) { return fmt.money(n); }
 
-  // ---------------------------------------------------------------- generated text (SPEC 8.5, fixed text blocks)
-  function generate(c) {
-    var st = S();
-    var mwId = E.mustWin(c), mw = E.priority(mwId) || { name: '', winning: '' };
+  // ---------------------------------------------------------------- the opening sentence (scriptEdits.opening when edited)
+  function openingGen(c) {
     var sT = E.summary(c.lines, 'today'), sP = E.summary(c.lines, 'proposed');
-    var mwT = entryFor(E.spendByPriority(c.lines, 'today'), mwId).amount;
-    var mwShare = sT.total > 0 ? mwT / sT.total : 0;
-    var mwP = entryFor(E.spendByPriority(c.lines, 'proposed'), mwId).amount;
-    var delta = mwP - mwT, up = r1(delta) > 0;
-    var t = {};
+    var lT = E.linkedShare(c.lines, 'today'), lP = E.linkedShare(c.lines, 'proposed');
+    return 'Today we invest ' + money(sT.total) + ' with you; we propose ' + (r1(sT.total) === r1(sP.total) ? 'the same total' : money(sP.total)) +
+      ', with ' + fmt.pct(sP.shareConditional) + ' paid for what is delivered instead of ' + fmt.pct(sT.shareConditional) + ', and ' +
+      fmt.pct(lP.share) + ' linked to our shared priorities instead of ' + fmt.pct(lT.share) + '.';
+  }
+  function opening(c) {
+    var ed = c.scriptEdits || {};
+    return typeof ed.opening === 'string' && ed.opening ? ed.opening : openingGen(c);
+  }
 
-    // Opening
-    var a = r1(mwT) === 0 ? 'None of it goes to this priority.' : fmt.money(mwT) + ' of it (' + fmt.pct(mwShare) + ') goes to this priority.';
-    var q = Math.round((1 - sT.shareConditional) * 100);
-    var b = q === 0 ? 'Every line already has a counterpart with a number.' : q + '% of the total has no counterpart with a number.';
-    t.opening = ('We want to invest more with you behind one priority for ' + st.year + ': ' + mw.name + '. ' + (mw.winning || '')).trim() +
-      '\n\nToday we invest ' + fmt.money(sT.total) + ' with ' + c.name + '. ' + a + ' ' + b;
+  // ---------------------------------------------------------------- the opportunities (E.opportunities, in the tool's ranking)
+  function oppName(c, o) {
+    if (o.kind === 'gap') { var p = E.priority(o.priorityId); return (p ? p.name : 'A priority') + ' with no spend'; }
+    if (o.kind === 'growth') return 'Investment above revenue growth';
+    if (o.lineIds.length === 1) { var l = findLine(c, o.lineIds[0]); if (l) return l.name; }
+    return o.kind === 'nopriority' ? 'Points with no priority' : o.title;
+  }
+  function opps(c) {
+    return E.opportunities(c).map(function (o, i) { return { key: E.oppKey(o), rank: i + 1, name: oppName(c, o), money: o.money, o: o }; });
+  }
 
-    // What we propose
-    var p = [];
-    p.push(up ? 'Move ' + fmt.money(delta) + ' into ' + mw.name + ': ' + fmt.money(mwP) + ', against ' + fmt.money(mwT) + ' today.'
-      : r1(mwP) === 0 && r1(mwT) === 0 ? 'Agree a first investment line for ' + mw.name + ': the proposal has none yet.'
-        : 'Keep ' + fmt.money(mwP) + ' on ' + mw.name + ' and agree a number for each line.');
-    p.push('Link ' + fmt.pct(sP.shareLinked) + ' of the investment to our shared priorities, against ' + fmt.pct(sT.shareLinked) + ' today.');
-    var nn = c.lines.filter(function (l) { return E.classOf(l, 'today') === 'partial'; });
-    var p3 = 'Give every conditional line a counterpart, a number and a date, so both sides can follow it during the year.';
-    if (nn.length) {
-      var nnSum = nn.reduce(function (s, l) { return s + E.amount(l, 'today'); }, 0);
-      p3 += ' Today ' + nn.length + (nn.length === 1 ? ' line' : ' lines') + ' worth ' + fmt.money(nnSum) + (nn.length === 1 ? ' is' : ' are') +
-        ' only partially conditional: ' + listJoin(nn.map(function (l) { return l.name; })) + '.';
+  // ---------------------------------------------------------------- a generated tree (fixed text blocks, no AI)
+  function lineDetail(l) {
+    var t = fmt.target(l.target, l.unit);
+    return blank(l.counterpart) ? '' : String(l.counterpart).trim() + (t ? ', ' + t : '');
+  }
+  function proposeLine(l) {
+    var aT = E.amount(l, 'today'), aP = E.amount(l, 'proposed'), same = r1(aT) === r1(aP), pid = E.priorityId(l, 'proposed');
+    var base, detail = lineDetail(l), withDetail = true;
+    switch (l.action) {
+      case 'Make conditional':
+      case 'Strengthen the counterpart':
+        base = 'Make the ' + l.name + ' conditional ' + (same ? 'at the same ' + money(aT) : 'at ' + money(aP) + ' (today ' + money(aT) + ')'); break;
+      case 'Reduce':
+        base = 'Reduce the ' + l.name + ' from ' + money(aT) + ' to ' + money(aP) + ' and move the difference to points paid for what is delivered'; withDetail = false; break;
+      case 'Fold into the list price': base = 'Fold the ' + l.name + ' (' + money(aT) + ') into the list price'; withDetail = false; break;
+      case 'Remove': base = 'Remove the ' + l.name + ' (' + money(aT) + ')'; withDetail = false; break;
+      case 'Invest more': base = 'Invest ' + money(aP) + ' in the ' + l.name + ', ' + money(aP - aT) + ' more'; break;
+      case 'Move to a priority': base = 'Link the ' + l.name + ' to ' + (pid ? E.priority(pid).name : 'one of our priorities') + ' at ' + money(aP); break;
+      default:
+        base = 'Keep the ' + l.name + ' at ' + money(aT) + (E.classOf(l, 'today') === 'partial' ? ' and write a number and a date into the contract' : '');
     }
-    p.push(p3);
-    p.push(r1(sT.total) === r1(sP.total) ? 'The total stays at ' + fmt.money(sT.total) + '.'
-      : 'The total moves from ' + fmt.money(sT.total) + ' to ' + fmt.money(sP.total) + '.');
-    t.propose = p.map(function (x) { return '– ' + x; }).join('\n');
-
-    // What we ask and what we give
-    var cond = c.lines.filter(function (l) { return E.lineStatus(l, 'proposed') === 'conditional'; })
-      .map(function (l, i) { return { l: l, i: i }; })
-      .sort(function (x, y) { return (E.amount(y.l, 'proposed') - E.amount(x.l, 'proposed')) || (x.i - y.i); })
-      .map(function (x) { return x.l; });
-    var ask = cond.slice(0, 4).map(function (l) {
-      // SPEC11: a line made conditional by its proposed wording may have no target or date in its fields
-      var parts = [fmt.target(l.target, l.unit), l.end ? periodLower(l.start, l.end) : ''].filter(Boolean);
-      return '– ' + String(l.counterpart).trim() + (parts.length ? ': ' + parts.join(', ') : ', as in the proposed wording');
-    });
-    c.lines.filter(function (l) { return E.classOf(l, 'proposed') === 'partial'; }).slice(0, 2).forEach(function (l) {
-      ask.push('– A number and a date for ' + l.name + '.');
-    });
-    var give = ['– ' + fmt.money(sP.conditional) + ' linked to these counterparts, paid when they are delivered.'];
-    if (up) give.push('– ' + fmt.money(delta) + ' more for ' + mw.name + '.');
-    give.push('– One KPI list with an owner and a data source for each line, reviewed together every quarter.');
-    t.ask = ask.join('\n');
-    t.give = give.join('\n');
-
-    // Objections
-    var d = sT.unconditional - sP.unconditional;
-    t.obj1q = 'We need the unconditional discount to stay as it is.';
-    t.obj1a = r1(sP.unconditional) < r1(sT.unconditional)
-      ? 'The total does not go down. We move ' + fmt.money(d) + ' from the unconditional part to lines you can earn in full by delivering the counterparts.'
-      : 'The unconditional part stays at ' + fmt.money(sT.unconditional) + '. What changes is that every other line gets a number and a date.';
-    t.obj2q = 'These targets are too hard to reach.';
-    t.obj2a = 'Each target is something you control in your own business: listings, shelf space, displays and promotion execution. ' +
-      'None of them depends on how much you buy from us. We start from what you deliver today and review the numbers together every quarter.';
-    var seen = {}, sources = [];
-    cond.forEach(function (l) {
-      var s = String(l.source || '').trim(), k = s.toLowerCase();
-      if (s && !seen[k] && sources.length < 3) { seen[k] = 1; sources.push(lcFirst(s)); }
-    });
-    t.obj3q = 'We cannot share that data.';
-    t.obj3a = 'We only need what shows that the counterpart was delivered: ' + (sources.length ? listJoin(sources) : 'a simple report agreed with you') +
-      '. We do not ask for data on other suppliers.';
-    var kp = E.kpis(c);
-    t.obj4q = 'What happens if we miss a target?';
-    t.obj4a = 'Only the money linked to that KPI is at stake, and we look at it together before the period ends. Today ' +
-      fmt.money(E.moneyAtStake(kp)) + ' depends on ' + kp.length + (kp.length === 1 ? ' KPI' : ' KPIs') + '; the rest of the agreement is not affected.';
-    return t;
+    return base + (withDetail && detail ? ': ' + detail : '') + '.';
   }
-  function texts(c) {
-    var g = generate(c), ed = c.scriptEdits || {}, out = {};
-    EDIT_KEYS.forEach(function (k) { out[k] = Object.prototype.hasOwnProperty.call(ed, k) ? String(ed[k]) : g[k]; });
-    return out;
-  }
-
-  // ---------------------------------------------------------------- card 1: spend against priorities
-  function chart(lines) {
-    var today = E.spendByPriority(lines, 'today'), prop = E.spendByPriority(lines, 'proposed');
-    var max = 0;
-    today.concat(prop).forEach(function (e) { if (e.share > max) max = e.share; });
-    function bar(share, cls) {
-      var w = max > 0 ? share / max * 100 : 0;
-      return '<div class="pl-bar ' + cls + (share > 0 ? '' : ' zero') + '" style="width:' + (share > 0 ? w.toFixed(2) + '%' : '6px') + '"></div>';
-    }
-    return '<div class="pl-chart">' + today.map(function (e, i) {
-      var pe = prop[i];
-      var tp = Math.round(e.share * 100), pp = Math.round(pe.share * 100);
-      return '<div class="pl-pri' + (e.priorityId ? '' : ' none') + '">' +
-        '<div class="pl-pri-top"><span class="pl-pri-name">' + esc(e.name) + '</span>' +
-        '<span class="pl-pri-pct">' + tp + '% <span class="pl-arrow">→</span> <span class="' + (pp > tp ? 'up' : '') + '">' + pp + '%</span></span></div>' +
-        '<div class="pl-bars">' + bar(e.share, 'today') + bar(pe.share, 'prop') + '</div>' +
-        '<div class="pl-pri-sub">SEK ' + fmt.m(e.amount) + ' m → ' + fmt.m(pe.amount) + ' m</div></div>';
-    }).join('') + '</div>';
-  }
-  function legend(items) {
-    return '<div class="pl-legend">' + items.map(function (x) { return '<span><i class="dot ' + x[0] + '"></i>' + esc(x[1]) + '</span>'; }).join('') + '</div>';
-  }
-  function cardTop(label, right) {
-    return '<div class="pl-top"><span class="label">' + esc(label) + '</span>' + (right || '') + '</div>';
-  }
-  function mustWinBlock(c) {
-    var sug = E.suggestedMustWin(c), mw = E.mustWin(c);
-    var opts = S().priorities.map(function (p) {
-      return '<option value="' + esc(p.id) + '"' + (p.id === mw ? ' selected' : '') + '>' + esc(p.name) + '</option>';
-    }).join('');
-    var note;
-    if (mw === sug) {
-      var amt = entryFor(E.spendByPriority(c.lines, 'today'), sug).amount;
-      note = '<span>' + (r1(amt) === 0 ? 'Suggested: no spend today.' : 'Suggested: lowest spend today, ' + esc(fmt.money(amt)) + '.') + '</span>';
+  function generated(c, o) {
+    var sT = E.summary(c.lines, 'today'), sP = E.summary(c.lines, 'proposed');
+    var lines = o.lineIds.map(function (id) { return findLine(c, id); }).filter(Boolean);
+    var l = lines[0], propose, obs;
+    if ((o.kind === 'unconditional' || o.kind === 'partial') && l) {
+      propose = proposeLine(l);
+      if (o.kind === 'unconditional') {
+        obs = [['This was always guaranteed.', 'The total stays at ' + money(sP.total) + '. Only the reason for paying becomes clear.', 'Link half of it this year, and the rest next year.'],
+          ['These targets are too hard to reach.', 'Each target is something you control in store: listings, shelf space, displays. We review it together every quarter.', 'Start with a lower target and raise it at mid-year.']];
+      } else {
+        var miss = E.missing(l).map(function (w) { return { counterpart: 'no counterpart', target: 'no number', date: 'no date', owner: 'no owner' }[w]; });
+        obs = [['The contract already says what we do.', 'The activity is named, but there is ' + listJoin(miss) + '. Without them neither side can check it.', 'Agree the number now and the date at the next meeting.'],
+          ['We do not want to report on every store.', 'One simple proof is enough: ' + lcFirst(l.source || 'a short report') + '.', 'Use a sample of stores agreed together.']];
+      }
+    } else if (o.kind === 'nopriority') {
+      var sum = lines.reduce(function (s, x) { return s + E.amount(x, 'today'); }, 0);
+      propose = 'Keep the ' + listJoin(lines.map(function (x) { return lcFirst(x.name); })) + ' at ' + money(sum) + ' and link ' + (lines.length > 1 ? 'them' : 'it') + ' to one of our priorities where it fits.';
+      obs = [['This works well as it is.', 'It does. We keep the counterpart and look for a link to one of our shared priorities.', 'Keep it as it is this year and review it in the autumn.'],
+        ['Why change something that is delivered?', 'The amount stays at ' + money(sum) + '. Only what we show or ask for in return may change.', 'Add one small action for a priority, at the same money.']];
+    } else if (o.kind === 'growth') {
+      var g = E.growth(c);
+      propose = 'Hold the total at ' + money(sP.total) + ': last year our investment grew ' + fmt.pct1(g.investment) + ' while revenue grew ' + fmt.pct1(g.revenue) + '.';
+      obs = [['Our business grew, so the support should grow too.', 'Investment grew ' + fmt.pct1(g.investment) + ', revenue ' + fmt.pct1(g.revenue) + '. The money that grows is the money you earn by delivering.', 'Keep this year\'s total and agree the split together.'],
+        ['We need more support, not less.', 'Support for what you deliver in store goes up. Only the part paid whatever happens goes down.', 'Look at both growth rates together at mid-year.']];
     } else {
-      var sp = E.priority(sug);
-      note = '<span>Your choice. Suggested: ' + esc(sp ? sp.name : '') + '.</span>' +
-        '<button type="button" class="linkbtn pl-use" data-action="planUseSuggestion" data-cust="' + esc(c.id) + '" data-key="plan:' + esc(c.id) + ':usesug">Use the suggestion</button>';
+      var p = E.priority(o.priorityId) || { name: 'this priority', winning: '' };
+      var pp = (E.spendByPriority(c.lines, 'proposed').filter(function (e) { return e.priorityId === o.priorityId; })[0] || { amount: 0 }).amount;
+      propose = r1(pp) > 0 ? 'Put ' + money(pp) + ' behind ' + p.name + (p.winning ? ': ' + lcFirst(p.winning) : '.')
+        : 'Agree a first contract point for ' + p.name + (p.winning ? ': ' + lcFirst(p.winning) : '.');
+      if (!/\.$/.test(propose)) propose += '.';
+      obs = [['This is not a priority for us this year.', 'Start small: one action in the stores where it fits best, paid when it is done.', 'Test it in ten stores for one quarter.'],
+        ['What do we get for it?', 'Money that today is paid whatever happens, paid instead for an action you deliver.', 'Agree the action now and the amount at the next meeting.']];
     }
-    var mwp = E.priority(mw);
-    return '<div class="pl-mw"><label class="label" for="pl-mw-sel">Must-win battle</label>' +
-      '<div class="pl-mwsel"><select id="pl-mw-sel" data-change="planMustWin" data-cust="' + esc(c.id) + '" data-key="plan:' + esc(c.id) + ':mw">' + opts + '</select>' +
-      icon('caret-down', 18) + '</div>' +
-      '<div class="pl-mwprint">' + esc(mwp ? mwp.name : '') + '</div>' +
-      '<div class="pl-mwnote">' + note + '</div></div>';
+    return { propose: propose, objections: obs.map(function (x) { return { say: x[0], answer: x[1], fallback: x[2] }; }) };
   }
-
-  // ---------------------------------------------------------------- card 2: opportunities
-  function opportunities(c) {
-    var items = E.opportunities(c);
-    if (!items.length) return '<p class="pl-none">Nothing stands out. Every line is conditional, has a number and serves a priority.</p>';
-    return '<ol class="pl-opps">' + items.map(function (o, i) {
-      return '<li><span class="pl-n">' + (i + 1) + '</span><div><div class="pl-ot">' + esc(o.title) + '</div><div class="pl-od">' + esc(o.detail) + '</div></div></li>';
-    }).join('') + '</ol>';
-  }
-
-  function oppSize(c) {
-    var total = E.summary(c.lines, 'today').total, size = E.opportunitySize(c);
-    return '<div class="pl-oppsum stat"><div class="v"><span class="u pre">SEK</span>' + esc(fmt.m(size)) + '<span class="u">m</span></div>' +
-      '<div class="l">' + fmt.pct(total > 0 ? size / total : 0) + ' of spend is not yet conditional with a number and linked to a priority</div></div>';
-  }
-
-  // ---------------------------------------------------------------- card 3: script
-  function editable(c, key, text, label, cls) {
-    return '<div class="pl-edit' + (cls ? ' ' + cls : '') + '" contenteditable="plaintext-only" spellcheck="false" role="textbox" aria-multiline="true" aria-label="' + esc(label) +
-      '" data-plan-edit="' + key + '" data-cust="' + esc(c.id) + '" data-key="plan:' + esc(c.id) + ':' + key + '">' + esc(text) + '</div>';
-  }
-  function scriptCard(c, tab) {
-    var t = texts(c);
-    var obj = tab === 'objections';
-    var seg = '<div class="segctl" role="tablist" aria-label="Script or objections">' +
-      '<a role="tab" class="' + (obj ? '' : 'on') + '" aria-selected="' + !obj + '" href="' + hashFor('plan', c.id, '') + '" data-key="plan-tab-script">Script</a>' +
-      '<a role="tab" class="' + (obj ? 'on' : '') + '" aria-selected="' + obj + '" href="' + hashFor('plan', c.id, 'objections') + '" data-key="plan-tab-obj">Objections</a></div>';
-    var rebuild = '<button type="button" class="btn ghost pl-rebuild" data-action="planRebuild" data-cust="' + esc(c.id) + '" data-key="plan:' + esc(c.id) + ':rebuild"' +
-      (hasEdits(c) ? '' : ' hidden') + '>' + icon('reset') + 'Rebuild from the data</button>';
-    var script = '<div class="pl-pane pl-script' + (obj ? ' pl-off' : '') + '" role="tabpanel" aria-label="Script"><div class="pl-printlabel">Script</div>' + SECTIONS.map(function (s) {
-      return '<section class="pl-sec"><div class="label">' + esc(s[1]) + '</div>' + editable(c, s[0], t[s[0]], s[1], s[0] === 'opening' ? '' : 'pl-list') + '</section>';
-    }).join('') + '<section class="pl-sec"><div class="label">' + esc(ASK_GIVE) + '</div><div class="pl-cols">' + ASK_GIVE_COLS.map(function (k) {
-      return '<div class="pl-col"><div class="pl-colh">' + esc(k[1]) + '</div>' + editable(c, k[0], t[k[0]], k[1], 'pl-list') + '</div>';
-    }).join('') + '</div></section></div>';
-    var objs = '<div class="pl-pane pl-objs' + (obj ? '' : ' pl-off') + '" role="tabpanel" aria-label="Objections"><div class="pl-printlabel">Objections</div>' + [1, 2, 3, 4].map(function (n) {
-      return '<section class="pl-obj">' + editable(c, 'obj' + n + 'q', t['obj' + n + 'q'], 'Objection ' + n, 'pl-q') +
-        editable(c, 'obj' + n + 'a', t['obj' + n + 'a'], 'Answer to objection ' + n, 'pl-a') + '</section>';
-    }).join('') + '</div>';
-    return '<div class="card pl-card pl-scriptcard"><div class="pl-top">' + seg + rebuild + '</div><div class="pl-scroll">' + script + objs + '</div></div>';
+  // the tree of an opportunity: the stored one (customer.trees[key]) or, until a box is edited, the generated one
+  function tree(c, op) {
+    var t = c.trees && c.trees[op.key];
+    return t || generated(c, op.o);
   }
 
   // ---------------------------------------------------------------- key figures (SPEC5 8): five groups, each a link to its screen
@@ -3741,7 +3895,7 @@ var TTS = (function (global) {
   function kfBand(cs, scope) {
     var d = kfData(cs), kf = d.kf, one = scope !== 'all';
     var href = {
-      terms: hashFor('agreement', scope, one ? 'waterfall' : ''), cls: hashFor('agreement', scope, ''), cps: hashFor('agreement', scope, ''),
+      terms: hashFor('agreement', scope, one ? 'waterfall' : ''), cls: hashFor('agreement', scope, one ? 'proposal' : ''), cps: hashFor('agreement', scope, ''),
       kpis: hashFor('track', scope, ''), ahead: hashFor('track', scope, '')
     };
     function grp(key, label, body) {
@@ -3769,99 +3923,114 @@ var TTS = (function (global) {
       grp('ahead', 'Paid ahead of delivery', '<div class="stat ' + (aheadZero ? 'pl-kfnone' : 'pl-kfahead') + '"><div class="v"><span class="u pre">SEK</span>' + esc(fmt.m(kf.paidAhead)) + '<span class="u">m</span></div></div>') +
       '</nav>';
   }
-  // the same figures as one compact line for the one-page print (shown only in the print layout)
-  function kfPrint(c) {
+  // the same figures as one compact line (print and the outline)
+  function kfLine(c) {
     var d = kfData([c]), kf = d.kf, kp = d.kp;
-    var parts = [
-      ['Trade terms', fmt.money(kf.total) + ', ' + fmt.pct1(kf.pctOfGross) + ' of gross'],
+    return [['Trade terms', fmt.money(kf.total) + ', ' + fmt.pct1(kf.pctOfGross) + ' of gross'],
       ['', d.u + ' unconditional, ' + d.p + ' partially, ' + d.c + ' conditional'],
       ['', d.cp.smart + ' of ' + d.cp.lines + ' pass the SMART check, ' + d.cp.aligned + ' of ' + d.cp.lines + ' aligned'],
       ['KPIs', kp.executed + ' fully executed, ' + kp.partly + ' partially executed, ' + kp.notexecuted + ' not executed'],
-      ['Paid ahead', fmt.money(kf.paidAhead)]
-    ];
-    return '<div class="pl-kfprint">' + parts.map(function (p) { return '<span>' + (p[0] ? '<b>' + esc(p[0]) + '</b> ' : '') + esc(p[1]) + '</span>'; }).join('') + '</div>';
+      ['Paid ahead', fmt.money(kf.paidAhead)]];
   }
-
+  function kfPrint(c) {
+    return '<div class="pl-kfprint">' + kfLine(c).map(function (p) { return '<span>' + (p[0] ? '<b>' + esc(p[0]) + '</b> ' : '') + esc(p[1]) + '</span>'; }).join('') + '</div>';
+  }
   function printHead(title) {
     var ex = S().customers.some(function (x) { return x.example; });
     return '<div class="pl-printhead"><span>' + esc(title) + '</span>' + (ex ? '<span class="badge">Example data</span>' : '') + '</div>';
   }
 
-  function planOne(c, r) {
-    var tab = r && r.option === 'objections' ? 'objections' : 'script';
-    return '<div class="pl-view pl-one">' + printHead('Negotiation plan — ' + c.name) + kfPrint(c) + kfBand([c], c.id) + '<div class="pl-grid">' +
-      '<div class="card pl-card pl-spend">' + cardTop('Spend against priorities', legend([['grey', 'Today'], ['green', 'Proposed']])) +
-      chart(c.lines) + mustWinBlock(c) + '</div>' +
-      '<div class="card pl-card pl-oppcard">' + cardTop('Top opportunities') + opportunities(c) + oppSize(c) + '</div>' +
-      scriptCard(c, tab) + '</div></div>';
+  // ---------------------------------------------------------------- the page of one customer
+  function pills(c, list, selKey, linkAll) {
+    return '<nav class="tr-pills" aria-label="Top opportunities">' + list.map(function (op) {
+      var on = !linkAll && op.key === selKey;
+      return '<a class="tr-pill' + (on ? ' on' : '') + '" href="' + hashFor('plan', c.id, op.key) + '"' + (on ? ' aria-current="true"' : '') +
+        ' data-key="pill:' + esc(c.id) + ':' + esc(op.key) + '"><span class="tr-rank">' + op.rank + '</span><span class="tr-pn">' + esc(op.name) + '</span>' +
+        (op.money !== null && op.money !== undefined ? '<span class="tr-pa">' + esc(money(op.money)) + '</span>' : '') + '</a>';
+    }).join('') + '</nav>';
   }
-
-  // ---------------------------------------------------------------- all customers
-  function rankedCard() {
-    var cs = S().customers.map(function (c) {
-      var total = E.summary(c.lines, 'today').total, size = E.opportunitySize(c);
-      return { c: c, size: size, share: total > 0 ? size / total : 0 };
-    }).sort(function (a, b) { return b.size - a.size; });
-    var max = 0;
-    cs.forEach(function (x) { if (x.size > max) max = x.size; });
-    return '<div class="card pl-card">' + cardTop('Customers ranked by opportunity') +
-      '<p class="pl-caption">Spend that is not yet conditional with a number and linked to a priority.</p><div class="pl-rows">' +
-      cs.map(function (x) {
-        var mw = E.priority(E.mustWin(x.c));
-        return '<a class="pl-crow" href="' + hashFor('plan', x.c.id, '') + '" data-key="plan-open:' + esc(x.c.id) + '">' +
-          '<div class="pl-crow-top"><span class="pl-cname">' + esc(x.c.name) + '</span><span class="pl-cval"><b>' + esc(fmt.money(x.size)) + '</b>' +
-          '<span class="pl-cshare">' + fmt.pct(x.share) + ' of spend</span></span></div>' +
-          '<div class="pl-track"><i style="width:' + (max > 0 ? (x.size / max * 100).toFixed(2) : 0) + '%"></i></div>' +
-          '<div class="pl-crow-sub">Must-win battle: ' + esc(mw ? mw.name : '–') + '</div></a>';
-      }).join('') + '</div></div>';
+  function edBox(c, op, idx, field, value, label, ph) {
+    var key = 'tree:' + c.id + ':' + op.key + ':' + (idx === null ? 'propose' : idx + ':' + field);
+    return '<textarea rows="1" class="cell wrapedit tr-ed" data-change="tree" data-cust="' + esc(c.id) + '" data-opp="' + esc(op.key) + '"' +
+      (idx === null ? '' : ' data-obj="' + idx + '"') + ' data-field="' + field + '" data-key="' + esc(key) + '" placeholder="' + esc(ph) + '" aria-label="' + esc(label) + '">' +
+      esc(value) + '</textarea>';
   }
-  function growthCard() {
-    var cs = S().customers.map(function (c) { return { c: c, g: E.growth(c) }; });
-    var pos = 0, neg = 0;
-    cs.forEach(function (x) {
-      [x.g.investment, x.g.revenue].forEach(function (v) { if (v > pos) pos = v; if (-v > neg) neg = -v; });
+  function treeView(c, op) {
+    var t = tree(c, op), n = t.objections.length;
+    var cols = t.objections.map(function (ob, i) {
+      var rm = n > 1 ? '<button type="button" class="iconbtn tr-rm" data-action="treeRemove" data-cust="' + esc(c.id) + '" data-opp="' + esc(op.key) + '" data-obj="' + i +
+        '" data-key="tree:' + esc(c.id) + ':' + esc(op.key) + ':' + i + ':rm" aria-label="Remove this objection" title="Remove this objection">' + icon('trash', 16) + '</button>' : '';
+      return '<div class="tr-col"><div class="tr-oh">Objection ' + (i + 1) + '</div>' +
+        '<div class="tr-box tr-say"><div class="tr-bh"><span class="tr-bl">They say</span>' + rm + '</div>' + edBox(c, op, i, 'say', ob.say, 'They say, objection ' + (i + 1), 'What they say') + '</div>' +
+        '<i class="tr-v" aria-hidden="true"></i>' +
+        '<div class="tr-box tr-ans"><div class="tr-bh"><span class="tr-bl">We answer</span></div>' + edBox(c, op, i, 'answer', ob.answer, 'We answer, objection ' + (i + 1), 'What we answer') + '</div>' +
+        '<i class="tr-v" aria-hidden="true"></i>' +
+        '<div class="tr-chips"><span class="chip green">Yes: agreed</span><span class="chip grey tr-no">Still no' + icon('caret-down', 12) + '</span></div>' +
+        '<i class="tr-v tr-vr" aria-hidden="true"></i>' +
+        '<div class="tr-box tr-fb"><div class="tr-bh"><span class="tr-bl">Fallback</span></div>' + edBox(c, op, i, 'fallback', ob.fallback, 'Fallback, objection ' + (i + 1), 'A smaller step that still moves forward') + '</div>' +
+        '<i class="tr-v" aria-hidden="true"></i>' +
+        '<div class="tr-end"><span class="chip grey">Still no: Sales leadership</span></div></div>';
+    }).join('');
+    var add = n < 3 ? '<button type="button" class="btn ghost tr-add" data-action="treeAdd" data-cust="' + esc(c.id) + '" data-opp="' + esc(op.key) + '" data-key="tree:' + esc(c.id) + ':' + esc(op.key) + ':add">' +
+      icon('plus') + 'Add an objection</button>' : '';
+    return '<div class="tr-tree">' +
+      '<div class="tr-box tr-prop"><div class="tr-bh"><span class="tr-bl">We propose</span></div>' + edBox(c, op, null, 'propose', t.propose, 'We propose', 'The proposal in one sentence') + '</div>' +
+      '<i class="tr-v" aria-hidden="true"></i><div class="tr-q">Expect an objection. Which one?</div>' +
+      '<div class="tr-cols" style="--n:' + n + '">' + cols + '</div>' + (add ? '<div class="tr-addrow">' + add + '</div>' : '') + '</div>';
+  }
+  // the outline of every opportunity (Copy script, print)
+  function outline(c) {
+    var out = [];
+    opps(c).forEach(function (op) {
+      var t = tree(c, op);
+      out.push(op.rank + '. ' + op.name + (op.money !== null && op.money !== undefined ? ' (' + money(op.money) + ')' : ''));
+      out.push('We propose: ' + t.propose);
+      t.objections.forEach(function (ob, i) {
+        out.push('Objection ' + (i + 1) + '. They say: ' + ob.say, '   We answer: ' + ob.answer, '   Fallback: ' + ob.fallback);
+      });
+      out.push('');
     });
-    var span = pos + neg || 1, zero = neg / span * 100;
-    // the scale runs inside the plot with 60 px kept free at each side for the value labels (so a label never leaves its box)
-    function at(pc) { return 'calc(60px + (100% - 120px) * ' + (pc / 100).toFixed(4) + ')'; }
-    function gbar(v, cls) {
-      var w = Math.abs(v) / span * 100;
-      var left = v >= 0 ? zero : zero - w;
-      var lab = v >= 0 ? 'left:calc(' + at(zero + w) + ' + 8px)' : 'right:calc(' + at(100 - (zero - w)) + ' + 8px)';
-      return '<div class="pl-gline"><i class="' + cls + '" style="left:' + at(left) + ';width:' + (w > 0 ? 'calc((100% - 120px) * ' + (w / 100).toFixed(4) + ')' : '2px') + '"></i>' +
-        '<span class="pl-gval" style="' + lab + '">' + esc(fmt.pct1s(v)) + '</span></div>';
-    }
-    return '<div class="card pl-card">' + cardTop('Investment growth against revenue growth') +
-      '<div class="pl-caption">' + legend([['navy', 'Investment'], ['blue', 'Revenue']]) + '</div><div class="pl-rows">' + cs.map(function (x) {
-        return '<div class="pl-grow"><div class="pl-crow-top"><span class="pl-cname">' + esc(x.c.name) + '</span>' +
-          (x.g.faster ? ui.chip('yellow', 'Faster than revenue') : '') + '</div>' +
-          '<div class="pl-gplot"><span class="pl-zero" style="left:' + at(zero) + '"></span>' +
-          gbar(x.g.investment, 'inv') + gbar(x.g.revenue, 'rev') + '</div></div>';
-      }).join('') + '</div></div>';
+    return out;
   }
-  // one headline above the three cards (SPEC2 7): "SEK 67.2 m of 95.0 m is not yet …"
-  function headline() {
-    var size = 0, total = 0;
-    S().customers.forEach(function (c) { size += E.opportunitySize(c); total += E.summary(c.lines, 'today').total; });
-    return '<div class="pl-headband"><span class="stat"><span class="v"><span class="u pre">SEK</span>' + esc(fmt.m(size)) + '<span class="u">m</span></span></span>' +
-      '<span class="pl-headtext">of ' + esc(fmt.m(total)) + ' m is not yet conditional with a number and linked to a priority</span></div>';
+  function plainText(c) {
+    return ['Negotiation plan — ' + c.name, '', 'To open the meeting', opening(c), '', 'Top opportunities, ranked by the tool', ''].concat(outline(c)).join('\n').replace(/\n+$/, '\n');
   }
+  function printOutline(c) {
+    return '<div class="tr-print"><div class="tr-pl">To open the meeting</div><p>' + esc(opening(c)) + '</p><div class="tr-pl">Top opportunities, ranked by the tool</div>' +
+      opps(c).map(function (op) {
+        var t = tree(c, op);
+        return '<section class="tr-pop"><h3>' + op.rank + '. ' + esc(op.name) + (op.money !== null && op.money !== undefined ? ' · ' + esc(money(op.money)) : '') + '</h3>' +
+          '<p><b>We propose:</b> ' + esc(t.propose) + '</p>' + t.objections.map(function (ob, i) {
+            return '<p class="tr-pob"><b>Objection ' + (i + 1) + '.</b> They say: ' + esc(ob.say) + '<br>We answer: ' + esc(ob.answer) + '<br>Fallback: ' + esc(ob.fallback) + '</p>';
+          }).join('') + '</section>';
+      }).join('') + '</div>';
+  }
+  function selected(c, r) {
+    var list = opps(c), key = r && r.option;
+    for (var i = 0; i < list.length; i++) if (list[i].key === key) return { list: list, op: list[i] };
+    return { list: list, op: list[0] || null };
+  }
+  function planOne(c, r) {
+    var s = selected(c, r);
+    var open = '<div class="tr-open"><label class="tr-ol" for="tr-opening">To open the meeting</label>' +
+      '<textarea rows="1" id="tr-opening" class="cell wrapedit tr-opening" data-change="planOpening" data-cust="' + esc(c.id) + '" data-key="plan:' + esc(c.id) + ':opening" aria-label="To open the meeting">' +
+      esc(opening(c)) + '</textarea></div>';
+    var body = s.op
+      ? '<div class="label tr-olab">Top opportunities, ranked by the tool</div>' + pills(c, s.list, s.op.key) + treeView(c, s.op)
+      : '<p class="muted tr-none">Nothing stands out. Every point is conditional, has a number and serves a priority.</p>';
+    return '<div class="pl-view pl-one">' + printHead('Negotiation plan — ' + c.name) + kfPrint(c) + kfBand([c], c.id) + open + '<div class="tr-screen">' + body + '</div>' +
+      printOutline(c) + '</div>';
+  }
+  // ---------------------------------------------------------------- all customers: the band for the total, then each customer's pills
   function planAll() {
-    return '<div class="pl-view pl-all">' + headline() + kfBand(S().customers, 'all') + '<div class="pl-grid pl-grid3">' +
-      '<div class="card pl-card pl-spend">' + cardTop('Spend against priorities', legend([['grey', 'Today'], ['green', 'Proposed']])) +
-      chart(TTS.scopeLines('all')) + '</div>' + rankedCard() + growthCard() + '</div></div>';
+    return '<div class="pl-view pl-all">' + kfBand(S().customers, 'all') + S().customers.map(function (c) {
+      var list = opps(c);
+      return '<section class="card tr-cust"><h2 class="tr-cname"><a href="' + hashFor('plan', c.id, '') + '" data-key="plan-open:' + esc(c.id) + '">' + esc(c.name) + '</a></h2>' +
+        (list.length ? pills(c, list, null, true) : '<p class="muted tr-none">Nothing stands out.</p>') + '</section>';
+    }).join('') + '</div>';
   }
 
   // ---------------------------------------------------------------- copy text
-  function plainText(c) {
-    var t = texts(c);
-    var out = ['Negotiation plan — ' + c.name, ''];
-    SECTIONS.forEach(function (s) { out.push(s[1], t[s[0]], ''); });
-    out.push(ASK_GIVE, 'We ask:', t.ask, '', 'We give:', t.give, '');
-    out.push('Objections', '');
-    [1, 2, 3, 4].forEach(function (n) { out.push(t['obj' + n + 'q'], t['obj' + n + 'a'], ''); });
-    return out.join('\n').replace(/\n+$/, '\n');
-  }
   function fallbackCopy(text) {
     var ta = document.createElement('textarea');
     ta.value = text;
@@ -3889,115 +4058,73 @@ var TTS = (function (global) {
   // ---------------------------------------------------------------- screen registration
   TTS.screens.plan = {
     head: function (scope, c) {
-      if (!c) return { title: '<span class="hl">Negotiation plan</span>, all customers', subtitle: 'Generated from the agreement: where the money goes, what to ask and what to say.' };
+      if (!c) return { title: '<span class="hl">Negotiation plan</span>, all customers', subtitle: 'The top opportunities of each customer, ranked by the tool.' };
       return {
         title: '<span class="hl">Negotiation plan</span> for ' + esc(c.name),
-        subtitle: 'Generated from the agreement: where the money goes, what to ask and what to say.',
+        subtitle: 'One opportunity at a time: what we propose, the objections to expect and how to answer them.',
         actions: '<button type="button" class="btn secondary" data-action="planCopy" data-cust="' + esc(c.id) + '" data-key="plan-copy">' + icon('copy') + 'Copy script</button>' +
           '<button type="button" class="btn primary" data-action="planPrint" data-key="plan-print">' + icon('print') + 'Print</button>'
       };
     },
     one: function (c, r) { return planOne(c, r); },
-    all: function () { return planAll(); },
-    afterRender: function (root) {
-      fitOppSum(root);
-      // the web font may still be loading on first paint: measure again once it is in
-      if (document.fonts && document.fonts.ready) document.fonts.ready.then(function () { fitOppSum(document.getElementById('view')); });
-    }
+    all: function () { return planAll(); }
   };
-  // The opportunity total sits at the foot of card 2 only when card 2 then stays no taller than the cards beside it
-  // (it never makes the row taller). Content-based, not tied to the window height.
-  function fitOppSum(root) {
-    var card = root && root.querySelector('.pl-oppcard'), sum = card && card.querySelector('.pl-oppsum');
-    if (!sum) return;
-    var grid = card.parentNode;
-    sum.classList.remove('pl-nofit');
-    grid.style.alignItems = 'start';
-    var others = 0;
-    Array.prototype.forEach.call(grid.children, function (x) { if (x !== card && x.offsetTop === card.offsetTop) others = Math.max(others, x.offsetHeight); });
-    var mine = card.offsetHeight;
-    grid.style.alignItems = '';
-    if (mine > others) sum.classList.add('pl-nofit');
-  }
-  TTS.plan ={ generate: generate, texts: texts, plainText: plainText };
+  // what Copy, Print and the Excel export need
+  TTS.plan = { opening: opening, openingGen: openingGen, opportunities: opps, tree: tree, generated: generated, plainText: plainText, kfLine: kfLine };
 
-  TTS.changes.planMustWin = function (el) {
+  // the opening sentence: stored only when it differs from the generated one (blank = back to the generated one)
+  TTS.changes.planOpening = function (el) {
     var c = TTS.customer(el.getAttribute('data-cust'));
     if (!c) return;
-    var v = el.value || null;
-    c.mustWinId = (!v || v === E.suggestedMustWin(c)) ? null : v;
+    var v = clean(el.value);
+    c.scriptEdits = {};
+    if (v && v !== openingGen(c)) c.scriptEdits.opening = v;
     TTS.commit();
   };
-  TTS.actions.planUseSuggestion = function (el) {
-    var c = TTS.customer(el.getAttribute('data-cust'));
-    if (!c) return;
-    c.mustWinId = null;
-    TTS.focusKey = 'plan:' + c.id + ':mw';
+  // a box of a tree: the first edit stores the whole tree of that opportunity
+  function storedTree(c, key) {
+    var op = null;
+    opps(c).forEach(function (x) { if (x.key === key) op = x; });
+    if (!op) return null;
+    c.trees = c.trees || {};
+    if (!c.trees[key]) c.trees[key] = JSON.parse(JSON.stringify(tree(c, op)));
+    return c.trees[key];
+  }
+  TTS.changes.tree = function (el) {
+    var c = TTS.customer(el.getAttribute('data-cust')), t = c && storedTree(c, el.getAttribute('data-opp'));
+    if (!t) return;
+    var f = el.getAttribute('data-field'), v = clean(el.value);
+    if (f === 'propose') t.propose = v;
+    else {
+      var o = t.objections[+el.getAttribute('data-obj')];
+      if (!o || ['say', 'answer', 'fallback'].indexOf(f) < 0) return;
+      o[f] = v;
+    }
     TTS.commit();
   };
-  TTS.actions.planRebuild = function (el) {
-    var c = TTS.customer(el.getAttribute('data-cust'));
+  TTS.actions.treeAdd = function (el) {
+    var c = TTS.customer(el.getAttribute('data-cust')), key = el.getAttribute('data-opp'), t = c && storedTree(c, key);
+    if (!t || t.objections.length >= 3) return;
+    t.objections.push({ say: '', answer: '', fallback: '' });
+    TTS.focusKey = 'tree:' + c.id + ':' + key + ':' + (t.objections.length - 1) + ':say';
+    TTS.commit();
+  };
+  TTS.actions.treeRemove = function (el) {
+    var c = TTS.customer(el.getAttribute('data-cust')), key = el.getAttribute('data-opp'), i = +el.getAttribute('data-obj');
     if (!c) return;
-    ui.confirm({ title: 'Rebuild the script from the data?', text: 'Your edits to the script and the objections are replaced by the text generated from the agreement.', okLabel: 'Rebuild' })
-      .then(function (ok) {
-        if (!ok) return;
-        c.scriptEdits = {};
-        TTS.commit();
-        ui.toast('Script rebuilt from the data.');
-      });
+    ui.confirm({ title: 'Remove this objection?', text: 'Its answer and its fallback are removed too.', okLabel: 'Remove' }).then(function (ok) {
+      if (!ok) return;
+      var t = storedTree(c, key);
+      if (!t || t.objections.length <= 1) return;
+      t.objections.splice(i, 1);
+      TTS.commit();
+    });
   };
   TTS.actions.planCopy = function (el) {
     var c = TTS.customer(el.getAttribute('data-cust'));
     if (c) copyText(plainText(c));
   };
   TTS.actions.planPrint = function () { if (typeof window !== 'undefined' && window.print) window.print(); };
-
-  // Edits are saved on blur without re-rendering, so the click that caused the blur still reaches its target.
-  function saveEdit(el) {
-    var c = TTS.customer(el.getAttribute('data-cust')), key = el.getAttribute('data-plan-edit');
-    if (!c || EDIT_KEYS.indexOf(key) < 0) return;
-    var text = norm(el.innerText !== undefined ? el.innerText : el.textContent);
-    var gen = norm(generate(c)[key]);
-    c.scriptEdits = c.scriptEdits || {};
-    var had = Object.prototype.hasOwnProperty.call(c.scriptEdits, key);
-    if (text !== gen) c.scriptEdits[key] = text;
-    else if (had) delete c.scriptEdits[key];
-    else return;
-    TTS.save();
-    var rb = document.querySelector('.pl-rebuild[data-cust="' + c.id.replace(/"/g, '\\"') + '"]');
-    if (rb) rb.hidden = !hasEdits(c);
-  }
-  // Print: switch .pl-one to the print layout (.pl-pm) and, if it is taller than one A4 landscape page
-  // (277 x 190 mm inside 10 mm margins = 1047 x 718 CSS px), scale it down with zoom until it fits.
-  var PAGE_W = 1040, PAGE_H = 712;
-  function beforePrint() {
-    var el = document.querySelector('.pl-one');
-    if (!el) return;
-    el.classList.add('pl-pm');
-    el.style.zoom = '';
-    var z = 1;
-    el.style.width = PAGE_W + 'px';
-    while (z > 0.6 && el.offsetHeight * z > PAGE_H) {
-      z = Math.round((z - 0.02) * 100) / 100;
-      el.style.width = (PAGE_W / z).toFixed(1) + 'px';
-    }
-    if (z < 1) el.style.zoom = String(z);
-  }
-  function afterPrint() {
-    var el = document.querySelector('.pl-one');
-    if (!el) return;
-    el.classList.remove('pl-pm');
-    el.style.width = ''; el.style.zoom = '';
-  }
-  if (typeof document !== 'undefined') {
-    document.addEventListener('focusout', function (e) {
-      var el = e.target && e.target.closest && e.target.closest('[data-plan-edit]');
-      if (el) saveEdit(el);
-    });
-    window.addEventListener('resize', function () { fitOppSum(document.getElementById('view')); });
-    window.addEventListener('beforeprint', beforePrint);
-    window.addEventListener('afterprint', afterPrint);
-  }
 })();
 
 if (typeof module !== 'undefined' && module.exports) module.exports = TTS;

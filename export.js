@@ -7,9 +7,10 @@
  *                                                  "Trade terms - all customers.xlsx" (Blob + temporary link), toast
  *                                                  "Excel file exported."; without ExcelJS it falls back to the old
  *                                                  two-sheet SheetJS export (TTS.excel.exportWorkbook)
- * scope = a customer id, or 'all' (or nothing). One sheet per screen: Priorities, Contract analysis, Agreement today,
- * Track and trace, Negotiation plan; with all customers every sheet has a Customer column first.
- * Everything comes from TTS.engine, TTS.fmt, TTS.plan.texts and the state (never from the DOM), so the labels on screen
+ * scope = a customer id, or 'all' (or nothing). Sheets (SPEC13 4): Priorities, Contract analysis, Price waterfall (the drill-down
+ * of the Contract analysis, with the by-pack table), Today and proposed, Track and trace, Negotiation plan (key figures and the
+ * opening sentence), Negotiation tree (one row per objection); with all customers every sheet has a Customer column first.
+ * Everything comes from TTS.engine, TTS.fmt, TTS.plan (opening, opportunities, tree) and the state (never from the DOM), so the labels on screen
  * can change without breaking the export.
  */
 (function () {
@@ -34,6 +35,7 @@
     text: { h: 'left' },
     num1: { fmt: '0.0', h: 'right' },          // SEK m
     pct1: { fmt: '0.0%', h: 'right' },         // a real fraction
+    pct0: { fmt: '0%', h: 'right' },           // a real fraction, shown as on screen (SPEC13)
     rate: { fmt: '0.00%', h: 'right' },
     date: { fmt: 'd mmm yyyy', h: 'right' },
     int: { fmt: '0', h: 'right' },
@@ -215,13 +217,13 @@
     return T;
   }
 
-  // ---------------------------------------------------------------- 3. Agreement today (+ By pack)
+  // ---------------------------------------------------------------- 3. Price waterfall (+ By pack)
   function sheetWaterfall(wb, st, cs, all) {
     var cols = withCustomer(all, [
       { h: 'Row', w: 36, t: 'text' }, { h: 'Bucket', w: 20, t: 'text' }, { h: 'Fixed or variable', w: 18, t: 'text' },
       { h: 'SEK m today', w: 12, t: 'num1' }, { h: '% of gross revenue today', w: 12, t: 'pct1' },
       { h: 'SEK m proposed', w: 12, t: 'num1' }, { h: '% of gross revenue proposed', w: 12, t: 'pct1' }]);
-    var T = new Table(wb, 'Agreement today', cols, { xSplit: all ? 2 : 1 });
+    var T = new Table(wb, 'Price waterfall', cols, { xSplit: all ? 2 : 1 });
     T.header(cols.map(function (c) { return c.h; }));
     cs.forEach(function (c, k) {
       var prop = {};
@@ -342,7 +344,62 @@
     return T;
   }
 
-  // ---------------------------------------------------------------- 5. Negotiation plan
+  // ---------------------------------------------------------------- 3b. Today and proposed (SPEC13 4): the figures of that page
+  function sheetTodayProposed(wb, st, cs, all) {
+    var cols = withCustomer(all, [
+      { h: 'Section', w: 26, t: 'text' }, { h: 'Item', w: 32, t: 'text' },
+      { h: 'Today (SEK m)', w: 11, t: 'num1' }, { h: 'Today (%)', w: 10, t: 'pct0' }, { h: 'Proposed (SEK m)', w: 11, t: 'num1' }, { h: 'Proposed (%)', w: 10, t: 'pct0' },
+      { h: 'Tag', w: 13, t: 'text' }, { h: 'Detail', w: 80, t: 'text' }]);
+    var T = new Table(wb, 'Today and proposed', cols, { xSplit: all ? 2 : 1 });
+    T.header(cols.map(function (c) { return c.h; }));
+    function section(c, title, rows) {
+      rows.forEach(function (r, i) { T.row(pre(all, c, [i === 0 ? { v: title, bold: true } : null].concat(r)), { rule: i === 0 }); });
+    }
+    cs.forEach(function (c) {
+      var d = E.todayProposed(c), sT = d.cls.today, sP = d.cls.proposed, dt = r1(sP.total) - r1(sT.total);
+      section(c, 'Figures', [
+        ['Total trade terms', sT.total, null, sP.total, null, null, r1(dt) === 0 ? 'Same money.' : 'Difference ' + fmt.delta(dt) + ' (SEK m).'],
+        ['Conditional', sT.conditional, sT.shareConditional, sP.conditional, sP.shareConditional, null, 'Share of the trade terms.'],
+        ['Linked to a priority', d.linked.today.amount, d.linked.today.share, d.linked.proposed.amount, d.linked.proposed.share, null, 'Share of the trade terms.'],
+        ['Improved at the same money', null, null, d.same.n ? d.same.amount : null, null, null, d.same.n
+          ? d.same.n + (d.same.n === 1 ? ' counterpart, ' : ' counterparts, ') + fmt.money(d.same.amount) + ': ' + TTS.listJoin(d.same.names) + '.' : 'None yet.']
+      ]);
+      section(c, 'How conditional is the money', [['unconditional', 'Unconditional', COL.grey], ['partial', 'Partially conditional', COL.yellow], ['conditional', 'Conditional', COL.mint]].map(function (x) {
+        var k = x[0].charAt(0).toUpperCase() + x[0].slice(1);
+        return [{ v: x[1], fill: x[2] }, sT[x[0]], sT['share' + k], sP[x[0]], sP['share' + k], null, null];
+      }));
+      section(c, 'Is it aligned with the priorities', d.pri.today.map(function (e, i) {
+        var p = d.pri.proposed[i];
+        return [e.priorityId ? e.name : { v: 'No priority', italic: true }, e.amount, e.share, p.amount, p.share, null, null];
+      }));
+      section(c, 'What moves, point by point', d.moves.length ? d.moves.map(function (m) {
+        var l = null; c.lines.forEach(function (x) { if (x.id === m.lineId) l = x; });
+        return [m.name, m.amount, null, l ? E.amount(l, 'proposed') : null, null, { v: m.tag, fill: m.tag === 'Same money' ? COL.mint : COL.grey }, E.moveText(m)];
+      }) : [[{ v: 'The proposal is the same as today.', italic: true }, null, null, null, null, null, null]]);
+    });
+    return T;
+  }
+
+  // ---------------------------------------------------------------- 5b. Negotiation tree (SPEC13 4): one row per objection
+  function sheetTree(wb, st, cs, all) {
+    var cols = withCustomer(all, [
+      { h: 'Opportunity', w: 30, t: 'text' }, { h: 'SEK m', w: 9, t: 'num1' }, { h: 'We propose', w: 50, t: 'text' },
+      { h: 'They say', w: 34, t: 'text' }, { h: 'We answer', w: 50, t: 'text' }, { h: 'Fallback', w: 40, t: 'text' }]);
+    var T = new Table(wb, 'Negotiation tree', cols, { xSplit: all ? 2 : 1 });
+    T.header(cols.map(function (c) { return c.h; }));
+    cs.forEach(function (c, k) {
+      TTS.plan.opportunities(c).forEach(function (op, j) {
+        var t = TTS.plan.tree(c, op);
+        t.objections.forEach(function (ob, i) {
+          T.row(pre(all, c, [op.rank + '. ' + op.name, finite(op.money) ? op.money : null, t.propose, ob.say, ob.answer, ob.fallback]), { rule: i === 0 && (j > 0 || k > 0) });
+        });
+      });
+    });
+    T.filter(1);
+    return T;
+  }
+
+  // ---------------------------------------------------------------- 5. Negotiation plan: the key figures and the opening sentence
   function sheetPlan(wb, st, cs, all) {
     var cols = withCustomer(all, [
       { h: 'Section', w: 32, t: 'text' }, { h: '#', w: 5, t: 'int' }, { h: 'Item', w: 40, t: 'text' },
@@ -376,55 +433,11 @@
         [null, 'Paid ahead of delivery (SEK m)', num(kf.paidAhead, SEK), null, kf.paidAhead > 0.05 ? 'Paid before the counterpart was delivered.' : null]);
       section(c, 'Key figures', rows);
     }
-    function spend(c, lines) {
-      var t = E.spendByPriority(lines, 'today'), p = E.spendByPriority(lines, 'proposed');
-      section(c, 'Spend against priorities (SEK m)', t.map(function (e, i) {
-        return [e.priorityId ? i + 1 : null, e.priorityId ? e.name : { v: 'No priority', italic: true }, num(e.amount, SEK), num(p[i].amount, SEK),
-          'Share of the trade terms: ' + fmt.pct(e.share) + ' today, ' + fmt.pct(p[i].share) + ' proposed.'];
-      }));
-    }
-    function entry(list, id) { for (var i = 0; i < list.length; i++) if (list[i].priorityId === id) return list[i]; return { amount: 0 }; }
-    function one(c) {
+    cs.forEach(function (c) {
       keyFigures(c, E.keyFigures(c));
-      spend(c, c.lines);
-      var mwId = E.mustWin(c), mw = E.priority(mwId), sug = E.suggestedMustWin(c);
-      var tAmt = entry(E.spendByPriority(c.lines, 'today'), mwId).amount, pAmt = entry(E.spendByPriority(c.lines, 'proposed'), mwId).amount;
-      var note = mwId === sug ? (r1(tAmt) === 0 ? 'Suggested: no spend today.' : 'Suggested: lowest spend today, ' + fmt.money(tAmt) + '.')
-        : 'Your choice. Suggested: ' + pName(sug) + '.';
-      section(c, 'Must-win battle (SEK m)', [[null, { v: mw ? mw.name : '–', bold: true }, num(tAmt, SEK), num(pAmt, SEK),
-        ((mw && mw.winning) ? mw.winning + '\n' : '') + note]]);
-      var opps = E.opportunities(c), size = E.opportunitySize(c), total = E.summary(c.lines, 'today').total;
-      var orows = opps.map(function (o, i) { return [i + 1, o.title, num(o.money, SEK), null, o.detail]; });
-      if (!orows.length) orows.push([null, 'Nothing stands out.', null, null, 'Every line is conditional, has a number and serves a priority.']);
-      orows.push([null, { v: 'Not yet conditional with a number and linked to a priority (SEK m)', bold: true }, { v: size, fmt: SEK, bold: true }, null,
-        fmt.pct(total > 0 ? size / total : 0) + ' of the trade terms.']);
-      section(c, 'Top opportunities (SEK m)', orows);
-      if (TTS.plan && typeof TTS.plan.texts === 'function') {
-        var t = TTS.plan.texts(c);
-        section(c, 'Script', [[null, 'Opening', null, null, t.opening], [null, 'What we propose', null, null, t.propose],
-          [null, 'What we ask', null, null, t.ask], [null, 'What we give', null, null, t.give]]);
-        section(c, 'Objections', [1, 2, 3, 4].map(function (n) { return [n, t['obj' + n + 'q'], null, null, t['obj' + n + 'a']]; }));
-      }
-    }
-    cs.forEach(one);
-    if (all) {
-      var lines = []; cs.forEach(function (c) { lines = lines.concat(c.lines); });
-      keyFigures(null, E.keyFigures(cs));
-      spend(null, lines);
-      var ranked = cs.map(function (c) {
-        var total = E.summary(c.lines, 'today').total, size = E.opportunitySize(c);
-        return { c: c, size: size, share: total > 0 ? size / total : 0 };
-      }).sort(function (a, b) { return b.size - a.size; });
-      section(null, 'Customers ranked by opportunity (SEK m)', ranked.map(function (x, i) {
-        return [i + 1, x.c.name, num(x.size, SEK), null, fmt.pct(x.share) + ' of the spend is not yet conditional with a number and linked to a priority. Must-win battle: ' +
-          (pName(E.mustWin(x.c)) || '–') + '.'];
-      }));
-      section(null, 'Investment growth against revenue growth', cs.map(function (c) {
-        var g = E.growth(c);
-        return [null, c.name, num(g.investment, PCT), null, 'Investment ' + fmt.pct1s(g.investment) + ', revenue (first net) ' + fmt.pct1s(g.revenue) + '.' +
-          (g.faster ? ' Faster than revenue: ' + fmt.money(g.excess) + ' above revenue growth.' : '')];
-      }));
-    }
+      section(c, 'To open the meeting', [[null, 'Opening sentence', null, null, TTS.plan.opening(c)]]);
+    });
+    if (all) keyFigures(null, E.keyFigures(cs));
     return T;
   }
 
@@ -443,8 +456,10 @@
       sheetPriorities(wb, st, cs, all);
       sheetContract(wb, st, cs, all);
       sheetWaterfall(wb, st, cs, all);
+      sheetTodayProposed(wb, st, cs, all);
       sheetTrack(wb, st, cs, all);
       sheetPlan(wb, st, cs, all);
+      sheetTree(wb, st, cs, all);
       return wb;
     } finally {
       TTS.state = prev;
