@@ -7,8 +7,8 @@
  *                                                  "Trade terms - all customers.xlsx" (Blob + temporary link), toast
  *                                                  "Excel file exported."; without ExcelJS it falls back to the old
  *                                                  two-sheet SheetJS export (TTS.excel.exportWorkbook)
- * scope = a customer id, or 'all' (or nothing). Sheets (SPEC13 4): Priorities, Contract analysis, Price waterfall (the drill-down
- * of the Contract analysis, with the by-pack table), Today and proposed, Track and trace, Negotiation plan (key figures and the
+ * scope = a customer id, or 'all' (or nothing). Sheets (SPEC13 4): Priorities, Contract analysis, Price waterfall (the view "View as a
+ * waterfall", with the by-pack table), Today and proposed, Track and trace, Negotiation plan (key figures and the
  * opening sentence), Negotiation tree (one row per objection); with all customers every sheet has a Customer column first.
  * Everything comes from TTS.engine, TTS.fmt, TTS.plan (opening, opportunities, tree) and the state (never from the DOM), so the labels on screen
  * can change without breaking the export.

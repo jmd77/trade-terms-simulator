@@ -3,8 +3,8 @@
  *
  * LAYOUT OF THIS FILE
  *   1. Core IIFE: example data (+ the monthly-row helpers), fmt, engine, state, ui helpers, Excel, routing + render, popover,
- *      then screen 1 Priorities, screen 2 Import, screen 3 Agreement (two tabs: Contract analysis, with the price waterfall and
- *      its optional By pack table behind a link, and Today and proposed; All customers = one chart), and TTS.start().
+ *      then screen 1 Priorities, screen 2 Import, screen 3 Agreement (three views: Contract analysis, Today and proposed, and View
+ *      as a waterfall = the price waterfall and its optional By pack table; All customers = one chart), and TTS.start().
  *   2. Screen 4 Track & trace (own IIFE, registers TTS.screens.track; CSS classes prefixed tt-). Ninth pass (SPEC9): a calendar.
  *      Rows are read-only, no input in a row: KPI · calendar · Status · chevron, for one customer and for All customers alike.
  *      KPI cell (td.tt-kpi): .tt-l1.tt-name = k.text (the KPI in words) + .tt-l2 (13 px muted, flex): the contract point (All
@@ -123,10 +123,9 @@
  *                objections: [{ say, answer, fallback }] } (stored or generated), generated(c, opportunity), plainText(c) (the
  *                Copy script outline), kfLine(c)   (screen 5; also used by the Excel export)
  *
- * ROUTES OF STEP 3 (SPEC5 4, SPEC13 1). One customer: two tabs, Contract analysis and Today and proposed (data-keys view-analysis,
- *   view-proposal); the price waterfall is a drill-down of the Contract analysis (link a.sublink "See the price waterfall" at the
- *   end of its subtitle, data-key to-waterfall; on the waterfall the Contract analysis tab is selected and a.backlink "Back to the
- *   Contract analysis" sits above the band (data-key wf-back) and at the left of the bottom row (wf-back2)).
+ * ROUTES OF STEP 3 (SPEC5 4, SPEC13 1, job5). One customer: a view switch with three entries, Contract analysis, Today and
+ *   proposed and View as a waterfall (data-keys view-analysis, view-proposal, view-waterfall); on every waterfall route (today,
+ *   proposed, by pack) "View as a waterfall" is the selected entry. No other link between the three views.
  *   #agreement/<c> or #agreement/<c>/analysis       Contract analysis (default view of one customer)
  *   #agreement/<c>/analysis/<lineId>                the same with that line's Details open (applied once when the route is
  *                                                   reached, scrolled into view; closing that Details returns the hash to #agreement/<c>)
@@ -144,7 +143,8 @@
  *                                                   head's controls wrap to their own row under the subtitle when they do not fit
  *                                                   beside the one-line title (CSS).
  *   The old #agreement/<c>/proposed becomes #agreement/<c>/waterfall/proposed. Coming from another screen, step 3 opens on Contract
- *   analysis. Next: Contract analysis and the waterfall -> "Next: Today and proposed" -> "Next: Track & trace". Today | Proposed
+ *   analysis; changing customer keeps the view. Next: Contract analysis -> "Next: Today and proposed"; Today and proposed and the
+ *   waterfall -> "Next: Track & trace". Today | Proposed
  *   of the waterfall: mode-today, mode-proposed (they keep /packs).
  *
  * ENGINE — TTS.engine (E). mode is 'today' | 'proposed'. Amounts in SEK m; shares and pct are fractions (0.124 = 12.4%).
@@ -360,7 +360,6 @@
  *   or an inline navy shade)[.dk = white text] > b share (b.tp-hide when it does not fit, set by fitSegLabels after render and on
  *   resize), .tp-btot total; .tp-legend, .tp-sw swatch, .tp-ln name, .tp-lv "today → proposed") and "What moves" (.tp-moves >
  *   a.tp-mv -> #agreement/<c>/analysis/<lineId>: .tp-mn name + .tp-ma amount, .tp-mw sentence, .tp-mt chip; or p.tp-same).
- *   Step 3 links: a.sublink (to the waterfall), a.backlink > .backarrow (back), .wf-back, .wf-bottomleft.
  *   Price waterfall (prefix wf-): .stats.bkband.wf-band[.prop] (three stats, .wf-l2 / .wf-today extra label lines, then
  *   bucketChart) · .wf-block > table.wf (col.wf-c-lab/-amt/-pct/-bar; th.wf-th0 holds the All packs | By pack .segctl.small) ·
  *   tr.wf-anchor.wf-k-<key> (.wf-an label, .wf-ah hint) · tr.wf-line.click[.wf-zero] (data-action go to the analysis/<lineId>
@@ -2080,11 +2079,11 @@ var TTS = (function (global) {
     }).join('') + '</div></nav>';
   }
   // "Next: Import →" for the current route (keeps the scope); '' on the last step. Step 3 of one customer walks
-  // Contract analysis (and its price waterfall) → Today and proposed → Track & trace (SPEC13 1).
+  // Contract analysis → Today and proposed → Track & trace; the waterfall view → Track & trace (job5).
   function nextButton(r) {
     r = r || TTS.route();
     function btn(href, label) { return '<a class="btn primary nextbtn" href="' + href + '" data-key="next">Next: ' + esc(label) + icon('arrow-right') + '</a>'; }
-    if (r.view === 'analysis' || r.view === 'waterfall') return btn(hashFor('agreement', r.scope, 'proposal'), 'Today and proposed');
+    if (r.view === 'analysis') return btn(hashFor('agreement', r.scope, 'proposal'), 'Today and proposed');   // the waterfall: Track & trace
     var i = -1;
     SCREENS.forEach(function (s, j) { if (s.id === r.screen) i = j; });
     var nx = SCREENS[i + 1];
@@ -2631,23 +2630,16 @@ var TTS = (function (global) {
   };
 
   // ================================================================ SCREEN 3 — Agreement (SPEC5 4 and 5, SPEC13 1)
-  // One customer: two tabs at the right of the page head, Contract analysis (default; route '' or 'analysis', 'analysis/<lineId>'
-  // opens that line's Details) and Today and proposed (route 'proposal'). The price waterfall (route 'waterfall' or
-  // 'waterfall/proposed', and the by-pack table) is a drill-down of the Contract analysis, reached by a link under its title; on it
-  // the Contract analysis tab is selected. All customers: the comparison chart, with no view switch.
+  // One customer: three views behind the switch at the right of the page head (job5): Contract analysis (default; route '' or
+  // 'analysis', 'analysis/<lineId>' opens that line's Details), Today and proposed (route 'proposal') and View as a waterfall (the
+  // price waterfall: route 'waterfall' or 'waterfall/proposed', and the by-pack table). All customers: the comparison chart, no switch.
   function segTab(label, href, on, key) {
     return '<a role="tab" class="' + (on ? 'on' : '') + '" aria-selected="' + on + '" href="' + href + '" data-key="' + key + '">' + label + '</a>';
   }
   function viewSwitch(c, view) {
     return '<div class="segctl" role="tablist" aria-label="View">' + segTab('Contract analysis', hashFor('agreement', c.id, ''), view === 'analysis', 'view-analysis') +
-      segTab('Today and proposed', hashFor('agreement', c.id, 'proposal'), view === 'proposal', 'view-proposal') + '</div>';
-  }
-  // quiet text links of step 3 (SPEC13 1): to the price waterfall, and back to the Contract analysis
-  function wfLink(c) {
-    return '<a class="sublink" href="' + hashFor('agreement', c.id, 'waterfall') + '" data-key="to-waterfall">See the price waterfall' + icon('arrow-right', 14) + '</a>';
-  }
-  function backLink(c, key) {
-    return '<a class="backlink" href="' + hashFor('agreement', c.id, '') + '" data-key="' + key + '"><span class="backarrow">' + icon('arrow-right', 14) + '</span>Back to the Contract analysis</a>';
+      segTab('Today and proposed', hashFor('agreement', c.id, 'proposal'), view === 'proposal', 'view-proposal') +
+      segTab('View as a waterfall', hashFor('agreement', c.id, 'waterfall'), view === 'waterfall', 'view-waterfall') + '</div>';
   }
   TTS.screens.agreement = {
     head: function (scope, c, r) {
@@ -2662,7 +2654,7 @@ var TTS = (function (global) {
         return {
           title: '<span class="hl">Price waterfall</span>: from gross revenue to net-net',
           subtitle: 'The same contract points as the Contract analysis, drawn as a price waterfall.',
-          actions: viewSwitch(c, 'analysis') + '<div class="segctl" role="tablist" aria-label="Today or proposed">' +
+          actions: viewSwitch(c, 'waterfall') + '<div class="segctl" role="tablist" aria-label="Today or proposed">' +
             segTab('Today', hashFor('agreement', c.id, 'waterfall' + (pk ? '/today' + pk : '')), !prop, 'mode-today') +
             segTab('Proposed', hashFor('agreement', c.id, 'waterfall/proposed' + pk), prop, 'mode-proposed') + '</div>'
         };
@@ -2676,7 +2668,7 @@ var TTS = (function (global) {
       }
       return {
         title: '<span class="hl">Contract analysis</span>: what the contract says, point by point',
-        subtitle: 'Each contract point with its money, its counterpart and what we propose. ' + wfLink(c),
+        subtitle: 'Each contract point with its money, its counterpart and what we propose.',
         actions: viewSwitch(c, 'analysis')
       };
     },
@@ -3170,15 +3162,13 @@ var TTS = (function (global) {
     var ctl = hasPacks ? '<div class="segctl small" role="tablist" aria-label="All packs or by pack">' +
       segTab('All packs', hashFor('agreement', c.id, 'waterfall' + (mode === 'proposed' ? '/proposed' : '')), !packs, 'packs-all') +
       segTab('By pack', hashFor('agreement', c.id, 'waterfall/' + sub + '/packs'), !!packs, 'packs-by') + '</div>' : '';
-    // SPEC13 1: a drill-down of the Contract analysis: a quiet way back above the band and at the left of the bottom row
-    var top = '<div class="wf-back">' + backLink(c, 'wf-back') + '</div>';
-    function bottom(cap) { return bottomRow('<div class="wf-bottomleft">' + backLink(c, 'wf-back2') + (cap ? '<p class="wf-cap">' + esc(cap) + '</p>' : '') + '</div>'); }
+    function bottom(cap) { return bottomRow(cap ? '<p class="wf-cap">' + esc(cap) + '</p>' : ''); }
     if (packs && hasPacks) {
-      return top + wfBand(c, mode) + '<div class="wf-block">' + packBlock(c, mode, ctl) + '</div>' +
+      return wfBand(c, mode) + '<div class="wf-block">' + packBlock(c, mode, ctl) + '</div>' +
         bottom('Contract points are spread across pack groups by revenue. Promotional spend is typed per pack group.');
     }
     var wb = waterfallBlock(c, mode, ctl);
-    return top + wfBand(c, mode) + '<div class="wf-block">' + wb.html + '</div>' + bottom(wb.caption);
+    return wfBand(c, mode) + '<div class="wf-block">' + wb.html + '</div>' + bottom(wb.caption);
   }
 
   // ---------------------------------------------------------------- Today and proposed (SPEC13 2): read-only, one customer
