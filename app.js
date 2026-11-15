@@ -57,7 +57,14 @@
  *   Screens 4 and 5 only use the core through TTS.* (no shared private variables).
  *
  * PUBLIC API (everything lives on window.TTS)
- *   TTS.state                      the live state (SPEC section 3 + SPEC5 1 + SPEC5b A: version 5, see DATA MODEL below)
+ *   TTS.state                      the live state (SPEC section 3 + SPEC5 1 + SPEC5b A + SPEC11: version 6, see DATA MODEL below)
+ *   TTS.isSignIn()                 SPEC11 1: true when the raw hash is empty ('', '#', '#/'). render() then draws only the sign-in
+ *                                  screen (main.si-page > .si-card: .si-brand, .si-sub, hr.si-rule, .si-as, .si-who, button.si-enter
+ *                                  data-action="signIn" data-key="signin-enter", focused; .si-note) and changes nothing in the state.
+ *                                  signIn goes to #priorities/<ui.scope if still valid, else the first customer>. TTS.route() still
+ *                                  returns the priorities fallback for an empty hash; nothing in the app links to an empty hash.
+ *   TTS.importCheckFresh           SPEC11 2.2: set true before a render to replay the Import check once (the next render reads and
+ *                                  clears it; the panel gets .fresh for that render). Set by "Load example data" and a good import.
  *   TTS.screens[name]              { head(scope, customer, route) -> {title, subtitle, actions},
  *                                    one(customer, route) -> html, all(route) -> html, afterRender?(root, route) }
  *   TTS.actions[name](el, event)   delegated clicks on [data-action="name"]
@@ -71,8 +78,8 @@
  *   TTS.customer(id), TTS.scopeLines(scope), TTS.uid(prefix)
  *   TTS.hashFor(screen, scope, option) -> "#screen/scope[/option]" · TTS.listJoin(["a","b","c"]) -> "a, b and c"
  *   TTS.dayNum("2027-06-15") -> whole days since 1970-01-01 (UTC), for day-of-year arithmetic
- *   TTS.load(), TTS.save(), TTS.resetToExample(), TTS.exampleState()   (saved under localStorage "tts.state.v5", state.version 5;
- *                                  older keys are ignored, load removes "tts.state.v4"; load fills every missing field with
+ *   TTS.load(), TTS.save(), TTS.resetToExample(), TTS.exampleState()   (saved under localStorage "tts.state.v6", state.version 6;
+ *                                  older keys are ignored, load removes "tts.state.v5" and "tts.state.v4"; load fills every missing field with
  *                                  its default)
  *   TTS.applyAction(line, action)  sets line.action and applies its effect once (SPEC5 3.2): Keep -> proposed amount, type and
  *                                  priority = today's · Make conditional, Strengthen the counterpart -> proposed type conditional ·
@@ -124,11 +131,20 @@
  * ENGINE — TTS.engine (E). mode is 'today' | 'proposed'. Amounts in SEK m; shares and pct are fractions (0.124 = 12.4%).
  *   amount(line,mode), type(line,mode), priorityId(line,mode), priority(id), hasNumber(line) (counterpart, target, date),
  *   missing(line) -> ['counterpart','target','date','owner'] still lacking (missing(kpi, 'name') for an extra KPI: no owner check)
- *   classOf(line, mode) -> 'unconditional' | 'partial' | 'conditional'   (SPEC5 3.3: conditional needs counterpart, target number,
- *     date AND owner; otherwise a conditional-type line is 'partial'). CLASS_LABEL = { unconditional: 'Unconditional',
+ *   classOf(line, mode) -> 'unconditional' | 'partial' | 'conditional'   (SPEC11 3.1: unconditional when the type is; conditional
+ *     when smart(line, mode).score === 4 (S, M, A, T); otherwise 'partial'. Relevant never changes it. Same result as SPEC5 3.3 for
+ *     a line without a proposed wording). CLASS_LABEL = { unconditional: 'Unconditional',
  *     partial: 'Partially conditional', conditional: 'Conditional' }. lineStatus is an alias of classOf (no more 'nonumber').
- *   smart(line, mode) -> { specific, measurable, owner, timebound, score }  (all false, score 0 when the type is unconditional)
+ *   wordingCheck(text) -> { specific (4 words or more), measurable (a digit left after taking out money and dates), timebound (a
+ *     month with a capital initial, a numeric date, a year 20xx, Q1-Q4 or "week 12") }   (SPEC11 3.1; money = a number next to
+ *     SEK / kr / kronor / EUR / €, with million, m, bn, billion, thousand, k; Q1-Q4 and "week 12" are also taken out as dates)
+ *   smart(line, mode) -> { specific, measurable, owner, relevant, timebound, score, pass, from }   (SPEC11 3.1: all false, from
+ *     'none' when the type is unconditional; in 'proposed' with a non-blank propClause S, M, T come from wordingCheck(propClause),
+ *     from 'wording'; else from the fields (counterpart, target number, end date), from 'fields'. owner = A (Accountable),
+ *     relevant = aligned(line, mode) = R. score = S+M+A+T (the four dots), pass = score 4 and relevant (all five letters).)
  *   aligned(line, mode) -> true when the line has a priority in that view
+ *   sameMoney(customer | [customers]) -> { n, amount, names }: the lines not 'conditional' today, 'conditional' in the proposal, with
+ *     the proposed amount = today's (one decimal) and above 0 (SPEC11 3.1)
  *   suggestPriority(line) -> priority id or null: only for a line conditional TODAY, with no priority today and
  *     priorityDecided === false (word match on name + counterpart + bucket hint, SPEC5 3.3). Counts nowhere until confirmed.
  *   ACTIONS (the eight action names, in menu order) · PROOFS (the seven proofs) · MONTHS ['Jan' … 'Dec']
@@ -173,10 +189,11 @@
  *     onInvoice, firstNet, offInvoice, secondNet, promo, thirdNet } } (SEK m; pct = fractions of THAT column's gross). A pack
  *     group's gross, onInvoice and offInvoice = the view's totals × share ÷ 100; its promo = its own promo. All packs = E.sales.
  *   keyFigures(customer | [customers] | nothing = all) -> { total, pctOfGross, sales, classes: { unconditional, partial,
- *     conditional } (each { amount, share }), counterparts: { lines, smart, aligned, smartNotAlignedAmount }, kpis: { n, executed,
- *     partly, notexecuted, atStake }, paidAhead, linkedToday, linkedProposed } — all today except linkedProposed; pctOfGross =
- *     total ÷ gross revenue (fraction); sales = E.sales(today) of that customer or the sums; linked* are linkedShare() objects
- *     { amount, total, share }; counterparts.lines = conditional-type lines today, smart = score 4.
+ *     conditional } (each { amount, share }), counterparts: { lines, smart, aligned, toImprove }, kpis: { n, executed,
+ *     partly, notexecuted, atStake }, paidAhead, sameMoney, linkedToday, linkedProposed } — all today except linkedProposed and
+ *     sameMoney (= E.sameMoney); pctOfGross = total ÷ gross revenue (fraction); sales = E.sales(today) of that customer or the sums;
+ *     linked* are linkedShare() objects { amount, total, share }; counterparts.lines = conditional-type lines today, smart = the ones
+ *     with smart(today).pass (all five letters), toImprove = lines − smart.
  *   spendByPriority, kpis, allKpis, moneyAtStake, moneyByStatus, growth (the first net today against revenueLY),
  *   opportunitySize, suggestedMustWin, mustWin, opportunities (kinds: unconditional, partial, nopriority, growth, gap),
  *   elapsed, statusLabel(status), isPercent(unit), paidAhead(customer), paidAheadTotal(customers),
@@ -201,8 +218,10 @@
  *     packs (optional; absent = no pack groups; imported customers have none): [{ name, share (% of gross revenue; the shares
  *       should add up to 100, nothing forces it), promo (SEK m) }]; with packs, promoSpend = the sum of promo (TTS.recalc)
  *   line: { id, name, amount, paidHow, bucket, type, priorityId, propAmount, propType, propPriorityId, counterpart, target, unit,
- *     start, end, source, owner, paid, clause, justification, action, why, priorityDecided, basis, rate, plan, done, proof,
- *     tracked, checked, due, paidFull, kpis }
+ *     start, end, source, owner, paid, clause, justification, action, why, kamNote, propClause, priorityDecided, basis, rate, plan,
+ *     done, proof, tracked, checked, due, paidFull, kpis }
+ *     kamNote (what the KAM will do) and propClause (the proposed wording) (SPEC11 3.1): text, '' by default, typed in Details
+ *       (not in the Excel import layout); a non-blank propClause decides S, M, T of the line in the proposal (E.smart)
  *     basis (SPEC5b A): 'Fixed' (the amount is typed, the rate is calculated) | 'Variable' (the rate is typed, amount follows
  *       in TTS.recalc) · rate: % of the base, two decimals (1.72), used when Variable; null on a Fixed line. propAmount stays
  *       typed in SEK m for every line.
@@ -286,8 +305,17 @@
  *   (the sentence under "Paid how" in Details) · .qm (.qm-rate, .qm-str: the "?" with a title) · .ca-str > .ca-pips >
  *   .ca-pip[.on] + .ca-al[.on] > svg.ca-flag (strength) · label.ovsel.sug + button.ca-ok (suggestion + confirm) ·
  *   tr.detrow.ca-detrow[data-line] > .ca-det > section.ca-blk .ca-b1/.ca-b2/.ca-b3 (each > h3.label; .ca-f = label .ca-l +
- *   control .ca-c; .ca-kpis > .ca-kpi > .ca-kpih + .ca-kpig; .ca-addkpi; .ca-smart > .ca-cks > .ca-ck[.on] + .ca-aln; .ca-nocp;
- *   .ca-acts)
+ *   control .ca-c; .ca-kpis > .ca-kpi > .ca-kpih + .ca-kpig; .ca-addkpi; .ca-nocp; .ca-acts)
+ *   SPEC11: block 1 "In the contract today", the wording in div.ca-quote (navy left bar) > span.ca-qm (the “, aria-hidden) + the
+ *   editor · block 2 ends with div.ca-smart5 > h3.label.muted "SMART check" + five div.ca-sr.ok|.no (icon + b word + words), from
+ *   the same E.smart as the row · block 3 starts with "What the KAM will do" (kamNote) and "Proposed wording" (propClause), both
+ *   .wrapedit.ca-two (two rows high when empty), then, when propClause is not blank, div.ca-pcheck > span.ca-lms > five span.ca-lm.ok|.no
+ *   (S M A R T of E.smart(line, 'proposed')) + p.ca-pctext (b.ca-pc-ok "Conditional" | b.ca-pc-no "Not yet conditional.")
+ *   · the action cell holds span.ca-becomes.is-c|.is-p|.is-u (arrow + the proposed class) when the classification changes and the
+ *   proposed amount is above 0 · band: the last two tiles are "Counterparts pass the SMART check" and .stat.ca-same "Improved at the
+ *   same money" with .ca-l3 (the third line; title = the names)
+ *   Import (prefix imp-, SPEC11 2): div.imp-check[.fresh] > .label + three div.imp-ck (style --i: 0..2) > span.imp-tick +
+ *   .imp-tx > .imp-main + .imp-det (line 3: + .imp-det2)
  *   Agreement today (prefix wf-): .stats.bkband.wf-band[.prop] (three stats, .wf-l2 / .wf-today extra label lines, then
  *   bucketChart) · .wf-block > table.wf (col.wf-c-lab/-amt/-pct/-bar; th.wf-th0 holds the All packs | By pack .segctl.small) ·
  *   tr.wf-anchor.wf-k-<key> (.wf-an label, .wf-ah hint) · tr.wf-line.click[.wf-zero] (data-action go to the analysis/<lineId>
@@ -303,7 +331,7 @@ var TTS = (function (global) {
   'use strict';
 
   var HAS_DOM = typeof document !== 'undefined' && typeof window !== 'undefined';
-  var STORE_KEY = 'tts.state.v5';
+  var STORE_KEY = 'tts.state.v6';
   var TTS = { screens: {}, actions: {}, changes: {}, state: null, lastImport: null, pop: null };
 
   var SCREENS = [
@@ -411,7 +439,7 @@ var TTS = (function (global) {
     if (PAID_HOW.indexOf(l.paidHow) < 0) l.paidHow = '';
     if (BUCKETS.indexOf(l.bucket) < 0) l.bucket = '';
     if (!finite(l.paid)) l.paid = null;
-    ['clause', 'justification', 'why'].forEach(function (f) { if (typeof l[f] !== 'string') l[f] = ''; });
+    ['clause', 'justification', 'why', 'kamNote', 'propClause'].forEach(function (f) { if (typeof l[f] !== 'string') l[f] = ''; });
     if (ACTIONS.indexOf(l.action) < 0) l.action = 'Keep';
     if (typeof l.priorityDecided !== 'boolean') l.priorityDecided = !!l.priorityId;
     // SPEC5b A: fixed (the amount is typed) or variable (the rate is typed, the amount follows; see TTS.recalc)
@@ -428,7 +456,7 @@ var TTS = (function (global) {
       id: id, name: name, amount: amount, paidHow: how, bucket: bucket, type: type, priorityId: pri,
       propAmount: pa, propType: pt, propPriorityId: pp,
       counterpart: cp, target: target, unit: unit, start: start, end: end, source: source, owner: owner, paid: paid,
-      clause: '', justification: '', action: 'Keep', why: '', priorityDecided: true, basis: 'Fixed', rate: null,
+      clause: '', justification: '', action: 'Keep', why: '', kamNote: '', propClause: '', priorityDecided: true, basis: 'Fixed', rate: null,
       plan: null, done: null, proof: 'None', tracked: false, checked: false, due: false, paidFull: false,
       kpis: kpis || []
     };
@@ -446,14 +474,14 @@ var TTS = (function (global) {
   // contract wording, justification, proposed action and why, per line (SPEC5 2.2 and 2.4)
   var EX_TEXT = {
     a1: ['The supplier grants a discount of 5.30% on the invoice on all products delivered during the agreement year.', 'None stated. Carried over from earlier agreements.',
-      'Reduce', 'Move SEK 1.8 m to lines the customer earns by delivering.'],
+      'Reduce', 'Move SEK 1.1 m to lines the customer earns by delivering.'],
     a2: ['A discount of 0.96% of net invoice sales is granted on invoices paid within 30 days.', 'Early payment.', 'Keep', 'It pays for paying on time.'],
     a3: ['A bonus of 1.72% of net invoice sales is paid after the end of the year.', 'None stated.',
       'Make conditional', 'Pay it for checkout coolers with single serve, not for the year ending.'],
     a4: ['The supplier pays SEK 250,000 for each leaflet week in which its products are featured with a display, up to 10 weeks a year.', 'Leaflet space and a display in store.',
       'Keep', 'It already has a number, a date and an owner.'],
-    a5: ['The supplier contributes SEK 0.8 million to joint marketing activities in the regions, to be agreed during the year.', 'Regional store activations. No number agreed.',
-      'Strengthen the counterpart', 'Agree the number of stores and link it to single serve.'],
+    a5: ['The supplier contributes SEK 0.8 million to joint marketing activities in the regions, to be agreed during the year.', 'Regional store activations. No number and no date agreed.',
+      'Strengthen the counterpart', 'Same money, a clear counterpart: 300 stores, a date and a proof.'],
     a6: ['The supplier pays SEK 1.4 million for the listing of up to six new packs in the central range by the end of April.', 'Central listing and distribution to the stores.',
       'Invest more', 'New packs are a priority and the counterpart is clear.'],
     a7: ['The supplier pays SEK 2.5 million for the zero sugar planogram to be in place in at least 90% of stores from February.', 'Shelf space for zero sugar, checked in the shelf audit.',
@@ -494,6 +522,13 @@ var TTS = (function (global) {
       'Keep', 'The files are how we measure the other lines.'],
     c8: ['An allowance of 1.44% of net invoice sales is paid when at least 90% of orders are placed by EDI in full pallets.', 'Lower handling cost for both parties.',
       'Keep', 'A fair exchange for EDI orders in full pallets.']
+  };
+  // SPEC11 4: what the KAM will do and the proposed wording, per line [kamNote, propClause]
+  var EX_KAM = {
+    a5: ['Clarify the wording: add the number of stores, the date and the proof.',
+      'The supplier contributes SEK 0.8 million when 300 stores in the regions are activated with a single-serve display by 30 April 2027, each confirmed by a photo report.'],
+    a3: ['Agree that the bonus is paid for checkout coolers, and write the 60 stores into the contract.', ''],
+    a1: ['Present it as the same total: SEK 1.1 m moves from the discount to new packs and zero sugar shelf space.', '']
   };
   // month by month (SPEC5 2.5): [plan, done, proof, tracked / checked / due / paid in full]; _ = nothing recorded
   var _ = null;
@@ -557,6 +592,8 @@ var TTS = (function (global) {
       lines.forEach(function (l) {
         var t = EX_TEXT[l.id];
         if (t) { l.clause = t[0]; l.justification = t[1]; l.action = t[2]; l.why = t[3]; }
+        var kn = EX_KAM[l.id];
+        if (kn) { l.kamNote = kn[0]; l.propClause = kn[1]; }
         if (EX_RATES[l.id] !== undefined) { l.basis = 'Variable'; l.rate = EX_RATES[l.id]; }
         [l].concat(l.kpis).forEach(function (o) {
           var mm = EX_MONTHS[o.id];
@@ -573,10 +610,10 @@ var TTS = (function (global) {
         packs: (EX_PACKS[id] || []).map(function (p) { return { name: p[0], share: p[1], promo: p[2] }; }),
         mustWinId: mustWin || null, scriptEdits: {}, lines: lines };
     }
-    var a5 = L('a5', 'Marketing support', 0.8, FIX, IS, C, null, 'Stores activated with single serve in the regions', null, 'stores', J1, D31, 'Store visit report', 'Trade marketing', null, 1.5, C, 'p1');
+    var a5 = L('a5', 'Marketing support', 0.8, FIX, IS, C, null, 'Stores activated with single serve in the regions', null, 'stores', null, null, 'Store visit report', 'Trade marketing', null, 0.8, C, 'p1');
     a5.priorityDecided = false;   // the priority is still open: the tool suggests Drive single serve (SPEC5 2.3)
     return {
-      version: 5, year: YEAR, demoDate: DEMO,
+      version: 6, year: YEAR, demoDate: DEMO,
       priorities: [
         { id: 'p1', name: 'Drive single serve', winning: 'Chilled single serve at every checkout and every food-to-go spot.' },
         { id: 'p2', name: 'Grow zero sugar', winning: 'Zero sugar on shelf, cold and in every promotion.' },
@@ -585,7 +622,7 @@ var TTS = (function (global) {
       ],
       customers: [
         cust('a', 'Customer A', 'Home', 220.7, 203.0, 25.5, [
-          U('a1', 'Agreement discount', 11.7, ON, 'Price agreement', 'KAM', 9.9),
+          U('a1', 'Agreement discount', 11.7, ON, 'Price agreement', 'KAM', 10.6),
           U('a2', 'Payment terms discount', 2.0, OFF, 'Finance system', 'Finance controller', 2.0),
           L('a3', 'Year-end bonus', 3.6, OFF, IS, UN, null, 'Checkout coolers with single serve', 60, 'stores', '2027-03-01', D31, 'Store visit report', 'Field sales lead', null, 3.6, C, 'p1'),
           L('a4', 'Leaflet allowance', 2.5, FIX, PR, C, 'p4', 'Leaflet weeks with a display', 10, 'weeks', J1, D31, 'Promotion calendar', 'KAM', 1.5, 2.5, C, 'p4'),
@@ -714,17 +751,59 @@ var TTS = (function (global) {
   };
   // SPEC5 3.3: unconditional when the type is; conditional with a counterpart, a target number, a date and an owner;
   // otherwise partially conditional (never counted as conditional; sits in the Unconditional bucket)
+  // SPEC11 3.1: conditional when the four dots of the SMART check are met (S, M, A, T; from the proposed wording when the
+  // proposal has one); R (a priority) never changes the classification
   E.classOf = function (line, mode) {
     if (E.type(line, mode) === 'unconditional') return 'unconditional';
-    return E.hasNumber(line) && !blank(line.owner) ? 'conditional' : 'partial';
+    return E.smart(line, mode).score === 4 ? 'conditional' : 'partial';
   };
   E.CLASS_LABEL = { unconditional: 'Unconditional', partial: 'Partially conditional', conditional: 'Conditional' };
   E.lineStatus = E.classOf;   // older name, same values
-  // counterpart strength (SMART) of a conditional-type line; an unconditional line has no counterpart: score 0
+  // SPEC11 3.1: how a proposed wording is read. Money (a number next to a currency) and dates are taken out first; a digit
+  // left over is "a number". A month (capital initial), a numeric date, Q1-Q4 or "week 12" is "a date".
+  var MON_RE = 'January|February|March|April|May|June|July|August|September|October|November|December|Jan|Feb|Mar|Apr|Jun|Jul|Aug|Sept|Sep|Oct|Nov|Dec';
+  var NUM_RE = '\\d+(?:[.,]\\d+)*';
+  var CUR_RE = '(?:\\bSEK\\b|\\bkronor\\b|\\bkr\\b\\.?|\\bEUR\\b|€)';
+  var MAG_RE = '(?:\\s*(?:million|billion|thousand|bn|m|k)\\b)?';
+  var MONEY_RES = [
+    new RegExp(CUR_RE + '\\s*' + NUM_RE + MAG_RE, 'gi'),
+    new RegExp(NUM_RE + MAG_RE + '\\s*' + CUR_RE, 'gi')
+  ];
+  var DATE_RES = [
+    /\b\d{4}-\d{1,2}-\d{1,2}\b/g,
+    /\b\d{1,2}\/\d{1,2}(?:\/\d{2,4})?\b/g,
+    /\b\d{1,2}\.\d{1,2}\.\d{4}\b/g,
+    new RegExp('\\b\\d{1,2}(?:st|nd|rd|th)?(?:\\s+of)?\\s+(?:' + MON_RE + ')\\b(?:\\s+\\d{4})?', 'gi'),
+    new RegExp('\\b(?:' + MON_RE + ')\\s+\\d{1,2}(?:st|nd|rd|th)?\\b(?:,?\\s+\\d{4})?', 'gi'),
+    /\b20\d{2}\b/g,
+    /\bQ[1-4]\b/gi,
+    /\bweek\s+\d{1,2}\b/gi
+  ];
+  var MONTH_WORD = new RegExp('\\b(?:' + MON_RE + ')\\b');   // case-sensitive: "may" the verb does not count
+  E.wordingCheck = function (text) {
+    var t = String(text || '');
+    var words = t.trim().split(/\s+/).filter(Boolean).length;
+    var rest = t;
+    MONEY_RES.concat(DATE_RES).forEach(function (re) { rest = rest.replace(re, ' '); });
+    var dated = DATE_RES.slice(0, 3).concat([/\b20\d{2}\b/, /\bQ[1-4]\b/i, /\bweek\s+\d{1,2}\b/i]).some(function (re) { re.lastIndex = 0; var hit = re.test(t); re.lastIndex = 0; return hit; });
+    return { specific: words >= 4, measurable: /\d/.test(rest), timebound: MONTH_WORD.test(t) || dated };
+  };
+  // SPEC11 3.1: the SMART check of a counterpart. S, M, T from the fields (counterpart, target number, end date) or, in the
+  // proposal with a proposed wording, from that wording; A = an owner; R = a priority in that view. score = S+M+A+T (the
+  // four dots), pass = all five. An unconditional line has no counterpart: everything false, from 'none'.
   E.smart = function (line, mode) {
-    var cond = E.type(line, mode) === 'conditional';
-    var s = { specific: cond && !blank(line.counterpart), measurable: cond && finite(line.target), owner: cond && !blank(line.owner), timebound: cond && !!line.end };
+    var s = { specific: false, measurable: false, owner: false, relevant: false, timebound: false, score: 0, pass: false, from: 'none' };
+    if (E.type(line, mode) !== 'conditional') return s;
+    if (mode === 'proposed' && !blank(line.propClause)) {
+      var w = E.wordingCheck(line.propClause);
+      s.specific = w.specific; s.measurable = w.measurable; s.timebound = w.timebound; s.from = 'wording';
+    } else {
+      s.specific = !blank(line.counterpart); s.measurable = finite(line.target); s.timebound = !!line.end; s.from = 'fields';
+    }
+    s.owner = !blank(line.owner);
+    s.relevant = E.aligned(line, mode);
     s.score = (s.specific ? 1 : 0) + (s.measurable ? 1 : 0) + (s.owner ? 1 : 0) + (s.timebound ? 1 : 0);
+    s.pass = s.score === 4 && s.relevant;
     return s;
   };
   E.aligned = function (line, mode) { return !!E.priorityId(line, mode); };
@@ -1012,24 +1091,37 @@ var TTS = (function (global) {
     var lines = [], ks = [];
     list.forEach(function (c) { lines = lines.concat(c.lines); ks = ks.concat(E.kpis(c)); });
     var s = E.summary(lines, 'today'), sales = E.sales(list, 'today');
-    var cp = { lines: 0, smart: 0, aligned: 0, smartNotAlignedAmount: 0 };
+    var cp = { lines: 0, smart: 0, aligned: 0, toImprove: 0 };
     lines.forEach(function (l) {
       if (E.type(l, 'today') !== 'conditional') return;
-      var sm = E.smart(l, 'today').score === 4, al = E.aligned(l, 'today');
       cp.lines += 1;
-      if (sm) cp.smart += 1;
-      if (al) cp.aligned += 1;
-      if (sm && !al) cp.smartNotAlignedAmount += E.amount(l, 'today');
+      if (E.smart(l, 'today').pass) cp.smart += 1;
+      if (E.aligned(l, 'today')) cp.aligned += 1;
     });
+    cp.toImprove = cp.lines - cp.smart;
     var kp = { n: ks.length, executed: 0, partly: 0, notexecuted: 0, atStake: E.moneyAtStake(ks) };
     ks.forEach(function (k) { kp[k.status] += 1; });
     return {
       total: s.total, pctOfGross: sales.gross > 0 ? s.total / sales.gross : 0, sales: sales,
       classes: { unconditional: { amount: s.unconditional, share: s.shareUnconditional }, partial: { amount: s.partial, share: s.sharePartial },
         conditional: { amount: s.conditional, share: s.shareConditional } },
-      counterparts: cp, kpis: kp, paidAhead: E.paidAheadTotal(list),
+      counterparts: cp, kpis: kp, paidAhead: E.paidAheadTotal(list), sameMoney: E.sameMoney(list),
       linkedToday: E.linkedShare(lines, 'today'), linkedProposed: E.linkedShare(lines, 'proposed')
     };
+  };
+  // SPEC11 3.1: the contract points that become conditional in the proposal at the same money (above 0, one decimal)
+  E.sameMoney = function (x) {
+    var list = Array.isArray(x) ? x : x ? [x] : S().customers;
+    var o = { n: 0, amount: 0, names: [] };
+    list.forEach(function (c) {
+      (c.lines || []).forEach(function (l) {
+        var a = r1(E.amount(l, 'today')), p = r1(E.amount(l, 'proposed'));
+        if (p > 0 && p === a && E.classOf(l, 'today') !== 'conditional' && E.classOf(l, 'proposed') === 'conditional') {
+          o.n += 1; o.amount += E.amount(l, 'proposed'); o.names.push(l.name);
+        }
+      });
+    });
+    return o;
   };
   // investment growth against net invoice sales growth (the first net today against revenueLY, net invoice sales last year)
   E.growth = function (c) {
@@ -1184,7 +1276,7 @@ var TTS = (function (global) {
 
   // ---------------------------------------------------------------- persistence
   function valid(st) {
-    return st && st.version === 5 && Array.isArray(st.customers) && Array.isArray(st.priorities) && finite(st.year) && typeof st.demoDate === 'string';
+    return st && st.version === 6 && Array.isArray(st.customers) && Array.isArray(st.priorities) && finite(st.year) && typeof st.demoDate === 'string';
   }
   // fills every missing customer and line field with its default, so an imported or hand-edited state never breaks
   function normCustomer(c, y, demo) {
@@ -1211,7 +1303,7 @@ var TTS = (function (global) {
   TTS.load = function () {
     var st = null;
     try {
-      if (global.localStorage) global.localStorage.removeItem('tts.state.v4');   // the old example data (SPEC10 5)
+      if (global.localStorage) { global.localStorage.removeItem('tts.state.v5'); global.localStorage.removeItem('tts.state.v4'); }   // the old example data (SPEC11 4)
       var raw = global.localStorage && global.localStorage.getItem(STORE_KEY);
       if (raw) st = JSON.parse(raw);
     } catch (e) { st = null; }
@@ -1847,10 +1939,36 @@ var TTS = (function (global) {
       (h.actions ? '<div class="head-actions">' + h.actions + '</div>' : '') + '</div>';
   }
 
+  // SPEC11 1: the page opened with no route (index.html, #, #/) shows the sign-in screen; any other hash opens its step
+  TTS.isSignIn = function () { return HAS_DOM && /^#?\/?$/.test(location.hash || ''); };
+  function signInView() {
+    return '<main class="si-page"><div class="si-card">' +
+      '<div class="si-brand"><span class="mark" aria-hidden="true"></span>Trade terms simulator</div>' +
+      '<p class="si-sub">CCEP Sweden · demo</p><hr class="si-rule">' +
+      '<div class="si-as">Signed in as</div><div class="si-who">Key account manager (demo user)</div>' +
+      '<button type="button" class="btn primary si-enter" data-action="signIn" data-key="signin-enter">Enter</button>' +
+      '<p class="si-note">Demo with invented example data. No password is asked and nothing is sent.</p>' +
+      '</div></main>';
+  }
+  TTS.actions.signIn = function () {
+    var sc = S().ui.scope;
+    if (!(sc === 'all' || TTS.customer(sc))) sc = defaultScope();
+    location.hash = hashFor('priorities', sc);
+  };
+  var importFreshNow = false;   // SPEC11 2.2: true during the one render right after a load (TTS.importCheckFresh)
+
   function render() {
     if (!HAS_DOM) return;
     var app = document.getElementById('app');
     if (!app) return;
+    if (TTS.isSignIn()) {
+      app.innerHTML = signInView();
+      var en = app.querySelector('.si-enter');
+      if (en) en.focus({ preventScroll: true });
+      return;
+    }
+    importFreshNow = !!TTS.importCheckFresh;
+    TTS.importCheckFresh = false;
     var r = TTS.route();
     if (r.fixed && history.replaceState) history.replaceState(null, '', routeHash(r));
     var st = S();
@@ -2090,8 +2208,9 @@ var TTS = (function (global) {
     var r = TTS.route();
     TTS.resetToExample();
     var scope = r.scope === 'all' ? 'all' : 'a';
-    TTS.go(r.screen, scope, optionFor(r.screen, r, scope === 'all'));
-    render();
+    var h = hashFor(r.screen, scope, optionFor(r.screen, r, scope === 'all'));
+    // one render only (SPEC11 2.2: the Import check plays once, in the render right after the load)
+    if (location.hash === h) render(); else { location.hash = h; }
     toast('Example data loaded.');
   }
   TTS.actions.reset = function () {
@@ -2099,8 +2218,9 @@ var TTS = (function (global) {
       .then(function (ok) { if (ok) doReset(); });
   };
   TTS.actions.loadExample = function () {
-    if (isUnchanged()) { doReset(); return; }
-    TTS.actions.reset();
+    if (isUnchanged()) { TTS.importCheckFresh = true; doReset(); return; }
+    confirmDlg({ title: 'Reset to example data?', text: 'This replaces everything in the tool with the three example customers.', okLabel: 'Reset' })
+      .then(function (ok) { if (ok) { TTS.importCheckFresh = true; doReset(); } });
   };
   TTS.actions.go = function (el) {
     var r = TTS.route();
@@ -2259,7 +2379,31 @@ var TTS = (function (global) {
         '<thead><tr><th>Customer</th><th>Channel</th><th class="num">Lines</th><th class="num">SEK <span class="nocase">m</span></th><th>Source</th><th><span class="visually-hidden">Remove</span></th></tr></thead>' +
         '<tbody>' + rows + total + '</tbody></table>'
       : '<p class="muted none-loaded">No customers are loaded. Upload a customer file or load the example data.</p>';
-    return cards + importResult() + '<div class="loaded-wrap"><div class="label">What is loaded now</div>' + table + '</div>';
+    return cards + importResult() + importCheck(list, !c) + '<div class="loaded-wrap"><div class="label">What is loaded now</div>' + table + '</div>';
+  }
+  // SPEC11 2: what the tool did with the loaded contracts, three lines; .fresh (right after a load) plays them in one by one
+  function importCheck(list, all) {
+    if (!list.length) return '';
+    function n(k, one, many) { return k + ' ' + (k === 1 ? one : many); }
+    var pts = 0, cls = { conditional: 0, partial: 0, unconditional: 0 }, cps = 0, pass = 0;
+    list.forEach(function (x) {
+      x.lines.forEach(function (l) {
+        pts += 1;
+        cls[E.classOf(l, 'today')] += 1;
+        if (E.type(l, 'today') === 'conditional') { cps += 1; if (E.smart(l, 'today').pass) pass += 1; }
+      });
+    });
+    var items = [
+      ['Contract points read', esc(n(pts, 'contract point', 'contract points') + (all ? ' from ' + n(list.length, 'customer', 'customers') : ''))],
+      ['Each point classified', esc(cls.conditional + ' conditional, ' + cls.partial + ' partially conditional, ' + cls.unconditional + ' unconditional')],
+      ['Each counterpart checked', esc(n(cps, 'counterpart', 'counterparts') + ', ' + pass + ' pass, ' + (cps - pass) + ' to improve') +
+        '<span class="imp-det2">Specific, measurable, accountable, relevant, time-bound</span>']
+    ];
+    return '<div class="imp-check' + (importFreshNow ? ' fresh' : '') + '"><div class="label">What the tool did with it</div>' +
+      items.map(function (it, i) {
+        return '<div class="imp-ck" style="--i:' + i + '"><span class="imp-tick" aria-hidden="true">' + icon('check', 14) + '</span>' +
+          '<div class="imp-tx"><span class="imp-main">' + esc(it[0]) + '</span><span class="imp-det">' + it[1] + '</span></div></div>';
+      }).join('') + '</div>';
   }
   function downloadWb(build, name) {
     if (typeof global.XLSX === 'undefined') { toast('The Excel library did not load.'); return; }
@@ -2295,6 +2439,7 @@ var TTS = (function (global) {
       if (res.ok) {
         var stored = TTS.applyImport(res);
         TTS.save();
+        TTS.importCheckFresh = true;
         TTS.go('import', stored.id);
         toast(stored.name + ' imported.');
       } else {
@@ -2479,10 +2624,10 @@ var TTS = (function (global) {
   // strength: four pips (Specific, Measurable, Owner, Time-bound) and, after a gap, the flag (aligned with a priority)
   function strengthIcon(line, mode) {
     if (E.type(line, mode) !== 'conditional') return '<span class="dash">–</span>';
-    var s = E.smart(line, mode), al = E.aligned(line, mode);
+    var s = E.smart(line, mode), al = s.relevant;
     function yn(b) { return b ? 'yes' : 'no'; }
-    var t = 'Specific: ' + yn(s.specific) + ' · Measurable: ' + yn(s.measurable) + ' · Owner: ' + yn(s.owner) + ' · Time-bound: ' + yn(s.timebound) +
-      ' · Aligned with a priority: ' + yn(al);
+    var t = 'Specific: ' + yn(s.specific) + ' · Measurable: ' + yn(s.measurable) + ' · Accountable: ' + yn(s.owner) + ' · Relevant: ' + yn(al) +
+      ' · Time-bound: ' + yn(s.timebound);
     return '<span class="ca-str" role="img" title="' + esc(t) + '" aria-label="' + esc(t) + '"><span class="ca-pips">' +
       [s.specific, s.measurable, s.owner, s.timebound].map(function (x) { return '<i class="ca-pip' + (x ? ' on' : '') + '"></i>'; }).join('') +
       '</span><span class="ca-al' + (al ? ' on' : '') + '">' + FLAG_SVG + '</span></span>';
@@ -2499,9 +2644,15 @@ var TTS = (function (global) {
     return '<td class="edit">' + ovLabel(c, line, 'priorityId', 'Priority (suggested: ' + p.name + ')', 'Suggested: ' + p.name, false, opts, 'sug')
       .replace('<span class="ovtext">', '<span class="ovtext">' + ok) + '</td>';
   }
+  // SPEC11 3.2: under the action, what the point becomes in the proposal when its classification changes (not clickable)
+  var BECOMES_CLS = { conditional: 'is-c', partial: 'is-p', unconditional: 'is-u' };
   function actionCell(c, line) {
     var opts = ACTIONS.map(function (a) { return '<option value="' + a + '"' + (a === line.action ? ' selected' : '') + '>' + a + '</option>'; }).join('');
-    return '<td class="edit">' + ovLabel(c, line, 'action', 'Proposed action', line.action, line.action === 'Keep', opts) + '</td>';
+    var pc = E.classOf(line, 'proposed'), becomes = '';
+    if (E.amount(line, 'proposed') > 0 && pc !== E.classOf(line, 'today')) {
+      becomes = '<span class="ca-becomes ' + BECOMES_CLS[pc] + '" title="Classification in the proposal">' + icon('arrow-right', 14) + esc(E.CLASS_LABEL[pc]) + '</span>';
+    }
+    return '<td class="edit">' + ovLabel(c, line, 'action', 'Proposed action', line.action, line.action === 'Keep', opts) + becomes + '</td>';
   }
   // the % of gross revenue under an amount (SPEC5c 2): 13 px muted, one decimal
   function pgLine(pct) { return '<span class="ca-pg">' + fmt.pct1(pct) + '</span>'; }
@@ -2578,11 +2729,44 @@ var TTS = (function (global) {
       periodBtn(c, line, k, k, m.indexOf('date') >= 0) +
       textInput(c, line, k, 'owner', k.owner, 'Owner', 'Owner', 'ca-ko') + textInput(c, line, k, 'source', k.source, 'Data source', 'Data source', 'ca-ks') + '</div></div>';
   }
-  function smartList(line, mode) {
-    var s = E.smart(line, mode), pid = E.priorityId(line, mode);
-    return '<div class="ca-smart"><div class="ca-cks">' + [['specific', 'Specific'], ['measurable', 'Measurable'], ['owner', 'With an owner'], ['timebound', 'Time-bound']].map(function (x) {
-      return '<span class="ca-ck' + (s[x[0]] ? ' on' : '') + '">' + icon(s[x[0]] ? 'check' : 'cross', 16) + esc(x[1]) + '</span>';
-    }).join('') + '</div><div class="ca-aln">Aligned with a priority: <b>' + (pid ? 'yes, ' + esc(E.priority(pid).name) : 'no') + '</b></div></div>';
+  // SPEC11 3.4: the SMART check of the counterpart, five rows (the same E.smart as the row's dots and flag)
+  function smartCheck(line, mode) {
+    var s = E.smart(line, mode), pid = E.priorityId(line, mode), w = s.from === 'wording';
+    var where = mode === 'proposed' ? 'in the proposal' : 'in the contract';
+    var rel = pid ? E.priority(pid).name : (mode === 'today' && E.suggestPriority(line) ? 'priority suggested, not confirmed' : 'not linked to a priority');
+    var rows = [
+      ['specific', 'Specific', w ? 'the wording says what is delivered' : 'the counterpart is named', w ? 'the wording is too short' : 'no counterpart ' + where],
+      ['measurable', 'Measurable', w ? 'a number in the wording' : fmt.target(line.target, line.unit), w ? 'no number in the proposed wording' : 'no number ' + where],
+      ['owner', 'Accountable', 'owner ' + String(line.owner || '').trim(), 'no owner'],
+      ['relevant', 'Relevant', rel, rel],
+      ['timebound', 'Time-bound', w ? 'a date in the wording' : periodLower(line.start, line.end), w ? 'no date in the proposed wording' : 'no date ' + where]
+    ];
+    return '<div class="ca-smart5"><h3 class="label muted">SMART check</h3>' + rows.map(function (x) {
+      var ok = !!s[x[0]];
+      return '<div class="ca-sr ' + (ok ? 'ok' : 'no') + '">' + icon(ok ? 'check' : 'cross', 16) + '<span><b>' + esc(x[1]) + '</b> ' + esc(ok ? x[2] : x[3]) + '</span></div>';
+    }).join('') + '</div>';
+  }
+  // SPEC11 3.4: the five letter marks of the proposal (from the proposed wording) and one sentence on what it gives
+  var MISS_WORD = { specific: 'what is delivered', measurable: 'a number', owner: 'an owner', timebound: 'a date' };
+  function propCheck(line) {
+    var s = E.smart(line, 'proposed'), cls = E.classOf(line, 'proposed');
+    var marks = [['specific', 'S', 'Specific'], ['measurable', 'M', 'Measurable'], ['owner', 'A', 'Accountable'], ['relevant', 'R', 'Relevant'], ['timebound', 'T', 'Time-bound']]
+      .map(function (x) {
+        var ok = !!s[x[0]];
+        return '<span class="ca-lm ' + (ok ? 'ok' : 'no') + '" title="' + x[2] + ': ' + (ok ? 'yes' : 'no') + '">' + x[1] + '</span>';
+      }).join('');
+    function money(n) { return fmt.money(n).replace(/ /g, ' '); }   // "SEK 0.8 m" never breaks
+    var a = E.amount(line, 'proposed'), t = E.amount(line, 'today'), txt;
+    if (E.type(line, 'proposed') !== 'conditional') {
+      txt = esc('Choose "Strengthen the counterpart" or "Make conditional" for this wording to count.');
+    } else if (cls === 'conditional') {
+      txt = '<b class="ca-pc-ok">Conditional</b> in the proposal, ' + (r1(a) === r1(t) ? 'at the same ' + money(a) + '.' : 'at ' + money(a) + ' (today ' + money(t) + ').') +
+        (s.relevant ? '' : ' Not linked to a priority yet.');
+    } else {
+      var miss = ['specific', 'measurable', 'owner', 'timebound'].filter(function (k) { return !s[k]; }).map(function (k) { return MISS_WORD[k]; });
+      txt = '<b class="ca-pc-no">Not yet conditional.</b> Missing: ' + esc(listJoin(miss)) + '.';
+    }
+    return '<div class="ca-pcheck"><span class="ca-lms" role="img" aria-label="SMART check of the proposed wording">' + marks + '</span><p class="ca-pctext">' + txt + '</p></div>';
   }
   // "Variable: 1.72% of the first net = SEK 3.6 m." / "Fixed: SEK 2.5 m = 1.2% of the first net." (SPEC5b C)
   function basisSentence(c, line) {
@@ -2593,8 +2777,9 @@ var TTS = (function (global) {
   function caDetails(c, line) {
     if (!TTS.details[detKey(c, line)]) return '';
     var ids = ' data-cust="' + esc(c.id) + '" data-line="' + esc(line.id) + '"', key = 'line:' + esc(c.id) + ':' + esc(line.id);
-    var b1 = '<section class="ca-blk ca-b1"><h3 class="label">In the contract</h3>' +
-      caField('Contract wording', wrapEdit(c, line, null, 'clause', line.clause, 'As written in the contract', '', 'Contract wording')) +
+    var b1 = '<section class="ca-blk ca-b1"><h3 class="label">In the contract today</h3>' +
+      caField('Contract wording', '<div class="ca-quote"><span class="ca-qm" aria-hidden="true">“</span>' +
+        wrapEdit(c, line, null, 'clause', line.clause, 'As written in the contract', '', 'Contract wording') + '</div>') +
       caField('Justification found', wrapEdit(c, line, null, 'justification', line.justification, 'None stated', '', 'Justification found')) +
       caField('Paid how', paidHowSelect(c, line)) + '<p class="ca-basisnote">' + esc(basisSentence(c, line)) + '</p></section>';
     // the counterpart block follows today's type; a line unconditional today but conditional in the proposal edits it for the proposal
@@ -2613,9 +2798,12 @@ var TTS = (function (global) {
         caField('Data source', textInput(c, line, null, 'source', line.source, '–', 'Data source')) +
         ((line.kpis || []).length ? '<div class="ca-kpis">' + line.kpis.map(function (k, i) { return caKpi(c, line, k, i); }).join('') + '</div>' : '') +
         '<button type="button" class="btn ghost ca-addkpi" data-action="addKpi"' + ids + ' data-key="' + key + ':addkpi">' + icon('plus') + 'Add a KPI</button>' +
-        smartList(line, mode) + '</section>';
+        smartCheck(line, mode) + '</section>';
     }
     var b3 = '<section class="ca-blk ca-b3"><h3 class="label">Proposal</h3>' +
+      caField('What the KAM will do', wrapEdit(c, line, null, 'kamNote', line.kamNote, 'What you will clarify or change with the customer', 'ca-two', 'What the KAM will do')) +
+      caField('Proposed wording', wrapEdit(c, line, null, 'propClause', line.propClause, 'The new contract text', 'ca-two', 'Proposed wording')) +
+      (blank(line.propClause) ? '' : propCheck(line)) +
       caField('Why', wrapEdit(c, line, null, 'why', line.why, 'One sentence on the proposal', '', 'Why')) +
       caField('Proposed priority', prioLabel(c, line, 'proposed')) +
       '<div class="ca-acts"><button type="button" class="btn ghost" data-action="deleteLine"' + ids + ' data-key="' + key + ':del">' + icon('trash') + 'Delete line</button></div></section>';
@@ -2623,7 +2811,7 @@ var TTS = (function (global) {
   }
   // the band: total, % of gross revenue, the classification (three small stats), SMART and aligned counterparts
   function caBand(c) {
-    var kf = E.keyFigures(c), cl = kf.classes, cp = kf.counterparts;
+    var kf = E.keyFigures(c), cl = kf.classes, cp = kf.counterparts, sm = kf.sameMoney;
     var mini = [['unconditional', 'u', 'Unconditional'], ['partial', 'n', 'Partially conditional'], ['conditional', 'c', 'Conditional']].map(function (x) {
       return '<div class="stat ca-mini' + (x[0] === 'conditional' ? ' good' : '') + '"><div class="v">' + Math.round(cl[x[0]].share * 100) + '<span class="u">%</span></div>' +
         '<div class="l"><i class="dot ' + x[1] + '"></i>' + x[2] + '</div></div>';
@@ -2632,11 +2820,12 @@ var TTS = (function (global) {
       '<div class="stat"><div class="v"><span class="u pre">SEK</span>' + fmt.m(kf.total) + '<span class="u">m</span></div><div class="l">Total trade terms</div></div>' +
       '<div class="stat"><div class="v">' + fmt.pct1(kf.pctOfGross).replace('%', '') + '<span class="u">%</span></div><div class="l">Of gross revenue</div></div>' +
       '<div class="ca-cls" role="group" aria-label="Classification">' + mini + '</div>' +
-      '<div class="stat"><div class="v">' + cp.smart + '<span class="u">of ' + cp.lines + '</span></div><div class="l">Counterparts SMART</div></div>' +
-      '<div class="stat"><div class="v">' + cp.aligned + '<span class="u">of ' + cp.lines + '</span></div><div class="l">Aligned with a priority</div></div></div>';
+      '<div class="stat"><div class="v">' + cp.smart + '<span class="u">of ' + cp.lines + '</span></div><div class="l">Counterparts pass the SMART check</div></div>' +
+      '<div class="stat ca-same"' + (sm.n > 0 ? ' title="' + esc(listJoin(sm.names)) + '"' : '') + '><div class="v">' + sm.n + '</div><div class="l">Improved at the same money</div>' +
+      '<div class="ca-l3">' + (sm.n > 0 ? esc(fmt.money(sm.amount)) + ' becomes conditional in the proposal' : 'Propose a clearer wording in Details') + '</div></div></div>';
   }
   var CA_COLS = ['', 'ca-c-fv', 'ca-c-amt', 'ca-c-cls', 'ca-c-bkt', 'ca-c-pri', 'ca-c-str', 'ca-c-act', 'ca-c-prop', 'ca-c-det'];
-  var STRENGTH_HELP = 'Four pips: Specific, Measurable, With an owner, Time-bound (filled green when met). Then a flag: aligned with a priority (filled green when it is).';
+  var STRENGTH_HELP = 'Specific · Measurable · Accountable (an owner) · Time-bound: the four dots. Relevant (aligned with a priority): the flag.';
   var RATE_HELP = 'On-invoice lines: % of gross revenue. Other lines: % of the first net (net invoice sales). Variable: type the rate. Fixed: type the amount.';
   function qm(text, cls) { return '<span class="qm ' + cls + '" title="' + esc(text) + '" aria-label="' + esc(text) + '" role="img">?</span>'; }
   // the table reads top to bottom as the path from gross revenue to net-net: the rows of E.waterfall(c, 'today') (SPEC5c 2)
@@ -3343,7 +3532,9 @@ var TTS = (function (global) {
       .sort(function (x, y) { return (E.amount(y.l, 'proposed') - E.amount(x.l, 'proposed')) || (x.i - y.i); })
       .map(function (x) { return x.l; });
     var ask = cond.slice(0, 4).map(function (l) {
-      return '– ' + String(l.counterpart).trim() + ': ' + fmt.target(l.target, l.unit) + ', ' + periodLower(l.start, l.end);
+      // SPEC11: a line made conditional by its proposed wording may have no target or date in its fields
+      var parts = [fmt.target(l.target, l.unit), l.end ? periodLower(l.start, l.end) : ''].filter(Boolean);
+      return '– ' + String(l.counterpart).trim() + (parts.length ? ': ' + parts.join(', ') : ', as in the proposed wording');
     });
     c.lines.filter(function (l) { return E.classOf(l, 'proposed') === 'partial'; }).slice(0, 2).forEach(function (l) {
       ask.push('– A number and a date for ' + l.name + '.');
@@ -3500,9 +3691,9 @@ var TTS = (function (global) {
         seg(cl.unconditional, 'u') + seg(cl.partial, 'n') + seg(cl.conditional, 'c') + '</div>' +
         '<div class="pl-kf1 pl-kfcls"><span><i class="dot u"></i><b>' + d.u + '</b> unconditional</span><span><i class="dot n"></i><b>' + d.p + '</b> partially</span>' +
         '<span><i class="dot c"></i><b>' + d.c + '</b> conditional</span></div>') +
-      grp('cps', 'Counterparts', '<div class="pl-kf1"><b>' + d.cp.smart + ' of ' + d.cp.lines + '</b> SMART</div>' +
+      grp('cps', 'Counterparts', '<div class="pl-kf1"><b>' + d.cp.smart + ' of ' + d.cp.lines + '</b> pass the SMART check</div>' +
         '<div class="pl-kf1"><b>' + d.cp.aligned + ' of ' + d.cp.lines + '</b> aligned with a priority</div>' +
-        (r1(d.cp.smartNotAlignedAmount) > 0 ? '<div class="pl-kf2">' + esc(fmt.money(d.cp.smartNotAlignedAmount)) + ' SMART but not aligned</div>' : '')) +
+        (kf.sameMoney.n > 0 ? '<div class="pl-kf2">' + kf.sameMoney.n + ' improved at the same money</div>' : '')) +
       grp('kpis', 'KPIs', '<div class="pl-kfchips">' + chips + '</div>') +
       grp('ahead', 'Paid ahead of delivery', '<div class="stat ' + (aheadZero ? 'pl-kfnone' : 'pl-kfahead') + '"><div class="v"><span class="u pre">SEK</span>' + esc(fmt.m(kf.paidAhead)) + '<span class="u">m</span></div></div>') +
       '</nav>';
@@ -3513,7 +3704,7 @@ var TTS = (function (global) {
     var parts = [
       ['Trade terms', fmt.money(kf.total) + ', ' + fmt.pct1(kf.pctOfGross) + ' of gross'],
       ['', d.u + ' unconditional, ' + d.p + ' partially, ' + d.c + ' conditional'],
-      ['', d.cp.smart + ' of ' + d.cp.lines + ' SMART, ' + d.cp.aligned + ' of ' + d.cp.lines + ' aligned'],
+      ['', d.cp.smart + ' of ' + d.cp.lines + ' pass the SMART check, ' + d.cp.aligned + ' of ' + d.cp.lines + ' aligned'],
       ['KPIs', kp.executed + ' fully executed, ' + kp.partly + ' partially executed, ' + kp.notexecuted + ' not executed'],
       ['Paid ahead', fmt.money(kf.paidAhead)]
     ];

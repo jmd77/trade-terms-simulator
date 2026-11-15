@@ -173,9 +173,10 @@
       { h: 'Classification', w: 16, t: 'cls' }, { h: 'Bucket', w: 18, t: 'text' }, { h: 'Priority', w: 28, t: 'text' },
       { h: 'Internal counterpart', w: 36, t: 'text' }, { h: 'Target', w: 12, t: 'num' }, { h: 'Unit', w: 14, t: 'text' },
       { h: 'From', w: 12, t: 'date' }, { h: 'To', w: 12, t: 'date' }, { h: 'Owner', w: 20, t: 'text' }, { h: 'Data source', w: 24, t: 'text' },
-      { h: 'Specific', w: 11, t: 'yn' }, { h: 'Measurable', w: 12, t: 'yn' }, { h: 'With an owner', w: 11, t: 'yn' }, { h: 'Time-bound', w: 11, t: 'yn' },
-      { h: 'SMART (of 4)', w: 11, t: 'int' }, { h: 'Aligned with a priority', w: 12, t: 'yn' },
-      { h: 'Proposed action', w: 24, t: 'text' }, { h: 'Why', w: 44, t: 'text' }, { h: 'Proposed SEK m', w: 12, t: 'num1' },
+      { h: 'Specific', w: 11, t: 'yn' }, { h: 'Measurable', w: 12, t: 'yn' }, { h: 'Accountable', w: 12, t: 'yn' }, { h: 'Relevant', w: 11, t: 'yn' },
+      { h: 'Time-bound', w: 11, t: 'yn' }, { h: 'SMART check (of 5)', w: 11, t: 'int' },
+      { h: 'Proposed action', w: 24, t: 'text' }, { h: 'Why', w: 44, t: 'text' },
+      { h: 'What the KAM will do', w: 44, t: 'text' }, { h: 'Proposed wording', w: 60, t: 'text' }, { h: 'Proposed SEK m', w: 12, t: 'num1' },
       { h: 'Proposed classification', w: 16, t: 'cls' }, { h: 'Proposed priority', w: 28, t: 'text' }]);
     var n = cols.length;
     var T = new Table(wb, 'Contract analysis', cols, { xSplit: all ? 2 : 1 });
@@ -203,9 +204,9 @@
           cond ? (l.bucket || 'No bucket') : dash,
           E.priorityId(l, 'today') ? pName(l.priorityId) : sug ? { v: 'Suggested: ' + pName(sug), fill: COL.yellow } : { v: 'No priority', muted: true },
           l.counterpart || '', xNum(l.target), l.unit || '', xDate(l.start), xDate(l.end), l.owner || '', l.source || '',
-          cond ? yn(sm.specific) : dash, cond ? yn(sm.measurable) : dash, cond ? yn(sm.owner) : dash, cond ? yn(sm.timebound) : dash,
-          cond ? sm.score : dash, yn(E.aligned(l, 'today')),
-          l.action || '', l.why || '', pr ? pr.amount : E.amount(l, 'proposed'), E.CLASS_LABEL[E.classOf(l, 'proposed')],
+          cond ? yn(sm.specific) : dash, cond ? yn(sm.measurable) : dash, cond ? yn(sm.owner) : dash, yn(E.aligned(l, 'today')),
+          cond ? yn(sm.timebound) : dash, cond ? sm.score + (sm.relevant ? 1 : 0) : dash,
+          l.action || '', l.why || '', l.kamNote || '', l.propClause || '', pr ? pr.amount : E.amount(l, 'proposed'), E.CLASS_LABEL[E.classOf(l, 'proposed')],
           E.priorityId(l, 'proposed') ? pName(l.propPriorityId) : { v: 'No priority', muted: true }
         ]));
       });
@@ -365,10 +366,10 @@
         [null, { v: 'Unconditional', fill: COL.grey }, num(cl.unconditional.share, PCT), null, 'Share of the trade terms: ' + fmt.money(cl.unconditional.amount) + '.'],
         [null, { v: 'Partially conditional', fill: COL.yellow }, num(cl.partial.share, PCT), null, 'Share of the trade terms: ' + fmt.money(cl.partial.amount) + '.'],
         [null, { v: 'Conditional', fill: COL.mint }, num(cl.conditional.share, PCT), null, 'Share of the trade terms: ' + fmt.money(cl.conditional.amount) + '.'],
-        [null, 'Counterparts SMART', cp.smart + ' of ' + cp.lines, null, 'Conditional lines whose counterpart is specific, measurable, with an owner and time-bound.'],
-        [null, 'Aligned with a priority', cp.aligned + ' of ' + cp.lines, null, 'Conditional lines linked to one of the priorities.']
+        [null, 'Counterparts', null, null, cp.smart + ' of ' + cp.lines + ' pass the SMART check, ' + cp.aligned + ' of ' + cp.lines + ' aligned'],
+        [null, 'Improved at the same money in the proposal', null, null, kf.sameMoney.n > 0
+          ? kf.sameMoney.n + (kf.sameMoney.n === 1 ? ' contract point, ' : ' contract points, ') + fmt.money(kf.sameMoney.amount) : '0 contract points']
       ];
-      if (r1(cp.smartNotAlignedAmount) > 0) rows.push([null, 'SMART but not aligned (SEK m)', num(cp.smartNotAlignedAmount, SEK)]);
       rows.push([null, { v: 'KPIs fully executed', fill: COL.mint }, { v: kp.executed, fmt: '0' }],
         [null, { v: 'KPIs partially executed', fill: COL.yellow }, { v: kp.partly, fmt: '0' }],
         [null, { v: 'KPIs not executed', fill: COL.grey }, { v: kp.notexecuted, fmt: '0' }],

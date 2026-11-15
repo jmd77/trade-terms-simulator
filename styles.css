@@ -417,6 +417,37 @@ dialog.dlg p { margin-top: 10px; font-size: 15px; color: var(--muted); }
 .msgs .msg-lead { font-weight: 700; }
 .loaded-wrap { margin-top: 32px; }
 .loaded-wrap > .label { margin-bottom: 12px; }
+/* SPEC11 2: what the tool did with it (three lines; .fresh plays them in one by one, right after a load) */
+.imp-check { margin-top: 32px; }
+.imp-check > .label { margin-bottom: 12px; }
+.imp-ck { display: flex; align-items: flex-start; gap: 12px; }
+.imp-ck + .imp-ck { margin-top: 10px; }
+.imp-tick {
+  flex: none; width: 20px; height: 20px; border-radius: 50%; background: var(--green); color: var(--white);
+  display: inline-flex; align-items: center; justify-content: center; margin-top: 1px;
+}
+.imp-tx { display: flex; flex-wrap: wrap; align-items: baseline; column-gap: 12px; min-width: 0; line-height: 22px; }
+.imp-main { font-weight: 700; }
+.imp-det { color: var(--muted); }
+.imp-det2 { display: block; }
+@keyframes imp-in { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+.imp-check.fresh .imp-ck { animation: imp-in 350ms ease-out both; animation-delay: calc(200ms + var(--i, 0) * 700ms); }
+@media (prefers-reduced-motion: reduce) { .imp-check.fresh .imp-ck { animation: none; } }
+@media print { .imp-check.fresh .imp-ck { animation: none; } }
+
+/* ------------------------------------------------------------------ SPEC11 1: sign-in screen (no route) */
+.si-page {
+  min-height: 100vh; background: var(--navy); display: flex; align-items: center; justify-content: center; padding: 24px 16px;
+}
+.si-card { width: 100%; max-width: 440px; background: var(--white); border-radius: 16px; padding: 40px; }
+.si-brand { display: flex; align-items: center; gap: 12px; font-size: 24px; font-weight: 700; line-height: 1.2; color: var(--navy); }
+.si-brand .mark { flex: none; width: 14px; height: 14px; border-radius: 4px; background: var(--green); }
+.si-sub { margin-top: 8px; color: var(--muted); }
+.si-rule { margin: 24px 0; border: 0; border-top: 1px solid var(--grey-light); }
+.si-as { font-size: 13px; color: var(--muted); }
+.si-who { margin-top: 4px; font-size: 16px; font-weight: 600; color: var(--navy); }
+.si-enter { width: 100%; margin-top: 28px; }
+.si-note { margin-top: 14px; font-size: 13px; color: var(--muted); }
 .grid.loaded td.muted { color: var(--muted); }
 .grid.loaded td.muted .ic { display: inline-block; vertical-align: -3px; margin-right: 4px; }
 .none-loaded { padding: 16px 0; }
@@ -596,15 +627,49 @@ dialog.dlg p { margin-top: 10px; font-size: 15px; color: var(--muted); }
 .ca-kpig .ca-kn { grid-column: 1 / -1; }
 .ca-kpig .ca-ko { grid-column: 1 / 3; }
 .btn.ghost.ca-addkpi { height: 36px; padding: 0 12px; margin: 8px 0 0 -12px; }
-/* SMART checklist in words */
-.ca-smart { margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--grey-light); font-size: 13px; font-weight: 600; line-height: 18px; }
-.ca-cks { display: flex; flex-wrap: wrap; gap: 6px 18px; }
-.ca-ck { display: inline-flex; align-items: center; gap: 5px; color: var(--muted); }
-.ca-ck .ic { color: var(--grey); }
-.ca-ck.on { color: var(--navy); }
-.ca-ck.on .ic { color: var(--green); }
-.ca-aln { margin-top: 8px; color: var(--muted); }
-.ca-aln b { color: var(--navy); font-weight: 700; }
+/* SPEC11 3.4: the SMART check, five rows (icon, the word, a few words) */
+.ca-smart5 { margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--grey-light); font-size: 13px; line-height: 18px; }
+.ca-smart5 > .label { margin-bottom: 8px; }
+/* the block headings of the Details are grey like "SMART check": in this panel green means "met" and "conditional" only */
+.ca-detrow .ca-blk > .label { color: var(--muted); }
+.ca-sr { display: flex; align-items: flex-start; gap: 8px; }
+.ca-sr + .ca-sr { margin-top: 5px; }
+.ca-sr .ic { margin-top: 1px; }
+.ca-sr b { font-weight: 600; color: var(--navy); }
+.ca-sr.ok .ic { color: var(--green); }
+.ca-sr.ok span { color: var(--muted); font-weight: 500; }
+.ca-sr.no .ic { color: var(--yellow-text); }
+.ca-sr.no span { color: var(--yellow-text); font-weight: 500; }
+/* SPEC11 3.4: the contract wording as a quote */
+.ca-quote { position: relative; display: flex; align-items: flex-start; background: var(--white); border-left: 3px solid var(--navy); border-radius: 0 6px 6px 0; }
+.ca-qm { flex: none; width: 22px; padding: 4px 0 0 8px; font-size: 28px; font-weight: 700; line-height: 28px; color: var(--grey); user-select: none; }
+.ca-quote .cell { flex: 1 1 auto; min-width: 0; border-color: transparent; }
+/* SPEC11 3.4: the two text boxes of the proposal, at least two rows high */
+.cell.wrapedit.ca-two { min-height: 58px; }
+/* SPEC11 3.4: the letter marks of the proposed wording and the sentence */
+.ca-pcheck { margin: 8px 0 2px 140px; display: flex; flex-direction: column; gap: 6px; }
+.ca-lms { display: inline-flex; gap: 5px; }
+.ca-lm {
+  display: inline-flex; align-items: center; justify-content: center; width: 22px; height: 22px; border-radius: 50%;
+  font-size: 12px; font-weight: 700; line-height: 1; cursor: default;
+}
+.ca-lm.ok { background: var(--green); color: var(--white); }
+.ca-lm.no { background: var(--white); color: var(--grey); box-shadow: inset 0 0 0 1.5px var(--grey); }
+.ca-pctext { font-size: 13px; line-height: 18px; color: var(--muted); }
+.ca-pc-ok { font-weight: 600; color: var(--green); }
+.ca-pc-no { font-weight: 600; color: var(--yellow-text); }
+/* SPEC11 3.2: under the proposed action, what the point becomes in the proposal (not clickable) */
+.ca-becomes {
+  display: flex; align-items: center; gap: 4px; padding: 0 6px; margin-top: -4px; font-size: 13px; font-weight: 600; line-height: 18px;
+  cursor: default;
+}
+.ca-becomes.is-c { color: var(--green); }
+.ca-becomes.is-p { color: var(--yellow-text); }
+.ca-becomes.is-u { color: var(--muted); }
+/* SPEC11 3.3: the band's last tile has a third line; it hangs under the shared label baseline (the band grows to hold it) */
+.stats.ca-band { padding-bottom: 33px; }
+.stat.ca-same { margin-bottom: -18px; }
+.stat.ca-same .ca-l3 { margin-top: 1px; font-size: 13px; font-weight: 500; line-height: 17px; color: var(--muted); }
 .ca-acts { margin-top: auto; padding-top: 16px; display: flex; justify-content: flex-end; }
 .ca-acts .btn { height: 36px; padding: 0 12px; margin-right: -12px; }
 
